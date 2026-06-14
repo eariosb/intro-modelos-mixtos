@@ -1,0 +1,9 @@
+services:
+  curso-mlm:
+    build: .
+    image: curso-modelos-mixtos:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped

@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import 'katex/dist/katex.min.css';
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: #fafafa;
+  color: #212529;
+}
+
+/* CodeMirror inside RCell / SASAccordion: remove default border, fit container */
+.cm-editor {
+  outline: none !important;
+}
+.cm-editor.cm-focused {
+  outline: 2px solid #4fa1a1 !important;
+  outline-offset: -1px;
+}
