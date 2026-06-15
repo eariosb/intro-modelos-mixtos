@@ -1,4 +1,18 @@
-# Módulo 10 · Modelos marginales y GEE
+---
+title: "GEE para efectos poblacionales"
+slug: "modelos-marginales-gee"
+subtitle: "GEE vs GLMM, estructuras de correlación de trabajo y errores sándwich."
+objective:
+  - "Distinguir entre inferencia marginal y condicional."
+  - "Identificar cuándo usar GEE frente a GLMM."
+  - "Interpretar la matriz de correlación de trabajo."
+  - "Obtener errores estándar sándwich."
+  - "Comparar el mismo dataset con lme4."
+order: 10
+datasets:
+  - "Orthodont (nlme)"
+---
+
 
 Este módulo explora la distinción entre modelos **condicionales** (LMM/GLMM) y **marginales** (GEE). Mientras que los modelos condicionales describen trayectorias sujeto a sujeto y permiten hacer inferencia sobre los efectos aleatorios, los modelos marginales estiman la respuesta promedio poblacional y son robustos a la especificación de la distribución de los aleatorios. En contextos clínicos con gran número de sujetos y múltiples visitas, GEE es ideal para responder “¿Cuál es el efecto promedio del tratamiento a lo largo del tiempo?” sin describir a cada paciente individualmente.
 
@@ -15,3 +29,23 @@ Este módulo explora la distinción entre modelos **condicionales** (LMM/GLMM) y
 
 - **Pregunta:** ¿Qué estructura de correlación de trabajo se recomienda probar primero?
 - **Respuesta:** Independencia, como punto de partida para calcular residuos robustos, y luego estructuras más ricas si los datos lo justifican.
+
+<RCell id="gee-compare" title="GEE vs GLMM con Orthodont" code={`library(geepack)
+library(lme4)
+data(Orthodont, package = "nlme")
+Orthodont$Subject <- as.factor(Orthodont$Subject)
+mod_gee <- geeglm(distance ~ age + Sex, id = Subject, data = Orthodont, family = gaussian, corstr = "exchangeable")
+mod_lmm <- lmer(distance ~ age + Sex + (1 + age | Subject), data = Orthodont)
+summary(mod_gee)
+summary(mod_lmm)`} />
+
+<SASAccordion title="Alternativa en SAS" code={`proc gee data=orthodont;
+  class Subject Sex;
+  model distance = age Sex / dist=normal link=identity;
+  repeated subject / type=exch corrw;
+run;`} />
+
+<RCell id="gee-robust" title="Covarianzas robustas y predicciones" code={`library(geepack)
+mod_gee <- geeglm(distance ~ age + Sex, id = Subject, data = Orthodont, family = gaussian, corstr = "exchangeable")
+print(summary(mod_gee))
+predict(mod_gee, newdata = data.frame(age = c(10, 12), Sex = c("Male", "Female")))`} />

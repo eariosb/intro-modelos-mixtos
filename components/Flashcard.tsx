@@ -1,17 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-
-export interface FlashcardData {
-  front: string;
-  back: string;
-}
+import type { FlashcardItem, FlashcardProps } from '@/types/course';
 
 /**
  * A single flip-card: click to reveal the back. Used to drill key
  * definitions and concepts (e.g. "¿Qué es un efecto aleatorio?").
  */
-function FlipCard({ front, back }: FlashcardData) {
+function FlipCard({ front, back }: FlashcardItem) {
   const [flipped, setFlipped] = useState(false);
 
   return (
@@ -32,15 +28,15 @@ function FlipCard({ front, back }: FlashcardData) {
 /**
  * Grid of flashcards for quick concept review at the end of a section.
  */
-export function Flashcard({ cards, title }: { cards: FlashcardData[]; title?: string }) {
-  if (!cards?.length) return null;
+export function Flashcards({ items, title }: FlashcardProps) {
+  if (!items?.length) return null;
   return (
     <section className="my-8">
       <h3 className="mb-3 text-lg font-semibold text-ink-900">
         {title ?? 'Repaso rápido: flashcards'}
       </h3>
       <div className="grid gap-3 sm:grid-cols-2">
-        {cards.map((c) => (
+        {items.map((c) => (
           <FlipCard key={c.front} front={c.front} back={c.back} />
         ))}
       </div>

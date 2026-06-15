@@ -1,0 +1,90 @@
+---
+title: "¿Qué son los modelos mixtos y cuándo usarlos?"
+slug: "introduccion-modelos-mixtos"
+subtitle: "Motivación, datos longitudinales y la diferencia entre efectos fijos y aleatorios."
+objective:
+  - "Reconocer datos longitudinales y de medidas repetidas."
+  - "Distinguir entre efectos fijos y efectos aleatorios."
+  - "Entender por qué el modelo de regresión lineal clásico falla con datos correlacionados."
+  - "Escribir la notación matricial general de un modelo lineal mixto."
+  - "Identificar ejemplos aplicados (crecimiento, salud, agronomía)."
+order: 1
+datasets:
+  - "sleepstudy (lme4)"
+---
+
+## Motivación
+
+Muchas preguntas de investigación requieren observar **el mismo sujeto, parcela o unidad varias veces** a lo largo del tiempo (datos longitudinales) o agrupar observaciones dentro de unidades superiores (datos jerárquicos / anidados: estudiantes dentro de colegios, árboles dentro de bloques, pacientes dentro de hospitales).
+
+En estos diseños, las observaciones **no son independientes**: dos mediciones del mismo sujeto suelen parecerse más entre sí que dos mediciones de sujetos distintos. El modelo de regresión lineal clásico
+
+$$
+y_i = \mathbf{x}_i^\top \boldsymbol{\beta} + \varepsilon_i, \qquad \varepsilon_i \overset{iid}{\sim} N(0,\sigma^2)
+$$
+
+asume independencia entre los $\varepsilon_i$. Si la ignoramos, los errores estándar quedan mal calculados y las pruebas de hipótesis pierden validez.
+
+## La idea central: efectos fijos y efectos aleatorios
+
+Un **modelo mixto** combina dos tipos de efectos:
+
+- **Efectos fijos** ($\boldsymbol{\beta}$): describen la relación promedio de la población, lo que normalmente nos interesa estimar e interpretar (p. ej. el efecto de un tratamiento).
+- **Efectos aleatorios** ($\mathbf{b}_i$): capturan la **desviación específica de cada unidad** (sujeto, grupo, parcela) respecto al promedio poblacional. No se interpretan individualmente, sino a través de su varianza.
+
+La forma general de un modelo lineal mixto para el sujeto $i$ con $n_i$ observaciones es:
+
+$$
+\mathbf{y}_i = \mathbf{X}_i \boldsymbol{\beta} + \mathbf{Z}_i \mathbf{b}_i + \boldsymbol{\varepsilon}_i,
+\qquad \mathbf{b}_i \sim N(\mathbf{0}, \mathbf{D}), \qquad \boldsymbol{\varepsilon}_i \sim N(\mathbf{0}, \mathbf{R}_i)
+$$
+
+donde $\mathbf{X}_i$ y $\mathbf{Z}_i$ son las matrices de diseño de efectos fijos y aleatorios, $\mathbf{D}$ es la matriz de covarianzas entre efectos aleatorios y $\mathbf{R}_i$ la covarianza intra-sujeto (a menudo $\sigma^2 \mathbf{I}$).
+
+> **Idea clave:** los efectos aleatorios "absorben" la correlación intra-sujeto, dejando que los efectos fijos describan la tendencia poblacional de forma correcta.
+
+## Un primer vistazo con datos reales
+
+El dataset `sleepstudy` (incluido en el paquete `lme4`) registra el **tiempo de reacción** de 18 sujetos sometidos a privación de sueño durante 10 días. Cada sujeto se midió varias veces, el escenario clásico de medidas repetidas.
+
+Ejecuta la celda siguiente para explorar la estructura de los datos y ver cómo cada sujeto tiene su propia trayectoria (intercepto y pendiente propios).
+
+<RCell id="sleepstudy-explore" title="Explorar el dataset sleepstudy" code={`# El dataset sleepstudy viene incluido en lme4
+library(lme4)
+library(ggplot2)
+
+data(sleepstudy)
+str(sleepstudy)
+head(sleepstudy, 10)
+
+# Cada Subject tiene 10 mediciones de Reaction a lo largo de Days
+table(sleepstudy$Subject)`} />
+
+<SASAccordion title="Lectura y exploración de datos longitudinales" code={`/* Lectura de datos longitudinales tipo "panel" */
+DATA sleepstudy;
+  INFILE 'sleepstudy.csv' DELIMITER=',' FIRSTOBS=2;
+  INPUT Reaction Days Subject;
+RUN;
+
+/* Vista preliminar: una fila por sujeto-dia */
+PROC PRINT DATA=sleepstudy(OBS=10);
+RUN;
+
+/* Conteo de mediciones por sujeto: confirma el diseño balanceado */
+PROC FREQ DATA=sleepstudy;
+  TABLES Subject;
+RUN;`} />
+
+<RCell id="sleepstudy-spaghetti" title="Gráfico de perfiles individuales (spaghetti plot)" code={`library(ggplot2)
+
+# Cada línea es un sujeto: observa cómo varían intercepto y pendiente
+ggplot(sleepstudy, aes(x = Days, y = Reaction, group = Subject, color = Subject)) +
+  geom_line(alpha = 0.6) +
+  geom_point(size = 1) +
+  labs(
+    title = "Tiempo de reaccion por sujeto a lo largo de 10 dias",
+    x = "Dias de privacion de sueno",
+    y = "Tiempo de reaccion (ms)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")`} />

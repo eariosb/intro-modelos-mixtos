@@ -4,11 +4,13 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import clsx from 'clsx';
-import { modules } from '@/content/modules';
+import type { ModuleEntry } from '@/types/course';
 import { ProgressBar } from './ProgressBar';
 import { Logo } from './layout/Logo';
 
-function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
+const COURSE_SLUG = 'modelos-mixtos';
+
+function SidebarContent({ modules, onNavigate }: { modules: ModuleEntry[]; onNavigate?: () => void }) {
   const pathname = usePathname();
 
   return (
@@ -20,51 +22,39 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         <p className="mt-0.5 text-xs text-ink-500">Curso interactivo con R</p>
       </div>
 
-      <ProgressBar />
+      <ProgressBar totalModules={modules.length} />
 
       <div className="flex-1 overflow-y-auto px-2 py-2">
-        {modules.map((mod) => (
-          <div key={mod.slug} className="mb-3">
-            <p className="px-2 py-1 text-xs font-semibold uppercase tracking-wide text-ink-400">
-              {mod.title}
-              {mod.comingSoon && (
-                <span className="ml-2 rounded-full bg-ink-100 px-2 py-0.5 text-[10px] font-medium text-ink-500 normal-case">
-                  Próximamente
-                </span>
-              )}
-            </p>
-            <ul className="space-y-0.5">
-              {mod.lessons.map((lesson) => {
-                const href = `/lecciones/${lesson.slug}`;
-                const active = pathname === href;
-                return (
-                  <li key={lesson.slug}>
-                    <Link
-                      href={href}
-                      onClick={onNavigate}
-                      aria-current={active ? 'page' : undefined}
-                      className={clsx(
-                        'block rounded px-3 py-1.5 text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-500',
-                        active
-                          ? 'bg-accent-50 font-medium text-accent-700'
-                          : 'text-ink-600 hover:bg-ink-100 hover:text-ink-900'
-                      )}
-                    >
-                      {lesson.title}
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        ))}
+        <ul className="space-y-0.5">
+          {modules.map((mod, i) => {
+            const href = `/cursos/${COURSE_SLUG}/modulos/${mod.meta.slug}`;
+            const active = pathname === href;
+            return (
+              <li key={mod.meta.slug}>
+                <Link
+                  href={href}
+                  onClick={onNavigate}
+                  aria-current={active ? 'page' : undefined}
+                  className={clsx(
+                    'block rounded px-3 py-1.5 text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-500',
+                    active
+                      ? 'bg-accent-50 font-medium text-accent-700'
+                      : 'text-ink-600 hover:bg-ink-100 hover:text-ink-900'
+                  )}
+                >
+                  {i + 1}. {mod.meta.title}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
       </div>
     </nav>
   );
 }
 
 /** Desktop sidebar (collapsible) + mobile drawer with the course index. */
-export function Sidebar() {
+export function Sidebar({ modules }: { modules: ModuleEntry[] }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -106,7 +96,7 @@ export function Sidebar() {
                 ✕
               </button>
             </div>
-            <SidebarContent onNavigate={() => setMobileOpen(false)} />
+            <SidebarContent modules={modules} onNavigate={() => setMobileOpen(false)} />
           </div>
         </div>
       )}
@@ -132,7 +122,7 @@ export function Sidebar() {
             <span className="rotate-180 text-xs [writing-mode:vertical-rl]">Índice del curso</span>
           </div>
         ) : (
-          <SidebarContent />
+          <SidebarContent modules={modules} />
         )}
       </aside>
     </>

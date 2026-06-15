@@ -1,8 +1,4 @@
-export interface DataTableProps {
-  caption?: string;
-  columns: string[];
-  rows: (string | number)[][];
-}
+import type { DataTableProps } from '@/types/course';
 
 /**
  * Small static table for showing example data, model output summaries

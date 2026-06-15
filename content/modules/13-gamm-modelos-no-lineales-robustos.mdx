@@ -1,0 +1,49 @@
+---
+title: "GAMM y bootstrap paramétrico"
+slug: "gamm-modelos-no-lineales-robustos"
+subtitle: "GAMM, transformaciones y bootstrap para trayectorias no lineales."
+objective:
+  - "Ajustar mgcv::gamm para capturar curvas suaves."
+  - "Interpretar funciones suavizadas y efectos aleatorios."
+  - "Explorar transformaciones y distribuciones t."
+  - "Realizar bootstrap para inferencia robusta."
+order: 13
+datasets:
+  - "Datos de crecimiento infantil simulados"
+---
+
+
+Los modelos aditivos mixtos (`mgcv::gamm`) permiten capturar curvas suaves sin imponer una forma paramétrica. En contextos pediátricos o de biomarcadores, las trayectorias no son lineales, y GAMM combina la flexibilidad de GAM con los efectos aleatorios de los LMM.
+
+## Flujo del módulo
+
+1. Construye una base spline suave para tiempo y añade efectos aleatorios en el intercepto y la pendiente.
+2. Usa `mgcv::gamm()` para ajustar y visualiza tanto la curva marginal como los perfiles individuales.
+3. Discute transformaciones y distribuciones t para abordar la falta de normalidad, y sugiere bootstrap paramétrico para inferencia robusta.
+
+## Flashcard
+
+**Flashcard:** ¿Qué ventaja tiene usar GAMM sobre un LMM tradicional?
+**Respuesta:** Captura la no linealidad sin tener que especificar manualmente polinomios o knots.
+
+<RCell id="gamm-fit" title="Ajuste GAMM con mgcv" code={`library(mgcv)
+set.seed(123)
+time <- seq(0, 18, length.out = 120)
+child <- factor(rep(1:30, each = 4))
+height <- 70 + 6 * sin(time / 2) + rnorm(length(child), 0, 0.5)
+df <- data.frame(time = rep(time[1:4], 30), height = height[1:120], child)
+mod_gamm <- gamm(height ~ s(time, k = 4), random = list(child = ~ 1), data = df)
+plot(mod_gamm$gam)`} />
+
+<SASAccordion title="Alternativa en SAS" code={`proc gam data=longdata;
+  model y = spline(time) / dist=normal;
+run;`} />
+
+<RCell id="gamm-bootstrap" title="Bootstrap paramétrico para coeficientes" code={`library(boot)
+boot_fun <- function(data, idx) {
+  d <- data[idx, ]
+  fit <- lm(height ~ poly(time, 3), data = d)
+  coef(fit)[2]
+}
+boot_res <- boot(df, boot_fun, R = 200)
+boot.ci(boot_res, type = "bca")`} />

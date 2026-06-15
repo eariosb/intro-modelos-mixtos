@@ -23,7 +23,7 @@ export function Footer() {
         </div>
         <address className="text-xs leading-relaxed not-italic text-ink-500 sm:text-right">
           <p className="font-medium text-ink-700">Esneider Rios</p>
-          <p>Universidad Nacional de Colombia — Sede Medellín</p>
+          <p>Universidad Nacional de Colombia - Sede Medellín</p>
           <p>Facultad de Ciencias · Departamento de Estadística</p>
           <p>2026</p>
         </address>

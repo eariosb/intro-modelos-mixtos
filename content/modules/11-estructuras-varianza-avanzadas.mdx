@@ -1,0 +1,43 @@
+---
+title: "Correlaciones y varianzas heterocedásticas"
+slug: "estructuras-varianza-avanzadas"
+subtitle: "Correlaciones complejas, heterocedasticidad y estructuras de trabajo para modelos marginales."
+objective:
+  - "Comparar corSymm, corAR1, corCompSymm, corExp."
+  - "Estimar varianza heterocedástica con varIdent o varPower."
+  - "Entender cómo influye la estructura en la eficiencia de GEE."
+  - "Mostrar resultados clínicos con gráficas de calor."
+order: 11
+datasets:
+  - "Orthodont (nlme)"
+---
+
+
+Las estructuras de correlación y varianza determinan qué tan eficientes son nuestras estimaciones. En `nlme` podemos especificar correlaciones con `corSymm`, `corAR1`, `corCompSymm`, `corExp` y varianzas heterocedásticas con `varIdent` o `varPower`. En GEE, la “estructura de trabajo” sirve para modelar parcialmente la correlación entre visitas y afecta la eficiencia sin sesgar los estimadores.
+
+## Aplicación clínica
+
+Usamos un dataset con biomarcadores repetidos donde la varianza aumenta con el tiempo o difiere entre tratamientos. El objetivo es mostrar cómo comparar AIC/BIC en LMM y cómo usar la matriz de correlación de trabajo en GEE para decidir si vale la pena una estructura más rica.
+
+## Flashcard
+
+**Flashcard:** ¿Qué estructura de varianza usarías si notas que la varianza de la respuesta crece con el tiempo?
+**Respuesta:** `varPower` o `varIdent` para capturar heterocedasticidad.
+
+<RCell id="var-structures" title="Correlaciones alternativas" code={`library(nlme)
+Orthodont <- Orthodont
+mod_ar1 <- lme(distance ~ age + Sex, random = ~ 1 | Subject, correlation = corAR1(form = ~ age | Subject), data = Orthodont)
+mod_comp <- update(mod_ar1, correlation = corCompSymm(form = ~ age | Subject))
+summary(mod_ar1)
+summary(mod_comp)`} />
+
+<SASAccordion title="Alternativa en SAS" code={`proc mixed data=spruce1 method=ml;
+  class id;
+  model log_growth = time1 / solution;
+  random intercept / subject=id;
+  repeated time1 / subject=id type=cs;
+run;`} />
+
+<RCell id="var-hetero" title="Varianza heterocedástica" code={`mod_var <- lme(distance ~ age + Sex, random = ~ 1 | Subject, weights = varPower(form = ~ age), data = Orthodont)
+summary(mod_var)
+intervals(mod_var)`} />

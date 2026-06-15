@@ -1,0 +1,47 @@
+---
+title: "Piecewise y pendientes por fase"
+slug: "intervenciones-cambios-temporales"
+subtitle: "Series temporales interrumpidas, variables dependientes del tiempo y cambios de pendiente."
+objective:
+  - "Construir variables antes/después de la intervención."
+  - "Añadir efectos aleatorios en los cambios."
+  - "Visualizar diferencias en las pendientes."
+  - "Documentar el impacto clínico del cambio."
+order: 12
+datasets:
+  - "Datos simulados de adherencia"
+---
+
+
+El cambio en políticas de salud, la implementación de una guía clínica o la introducción de un protocolo nuevo se analiza mejor con modelos que permiten distintas pendientes antes y después de la intervención. Este módulo explica cómo construir variables dependientes del tiempo y modelos piecewise dentro de un marco de medidas repetidas.
+
+## Caso clínico
+
+Un programa de adherencia a la medicación fue implementado en el mes 6. Los datos registran adherencia mensual durante 12 meses. Construimos variables que separan las pendientes antes y después del plazo, y añadimos un efecto aleatorio que permite a cada paciente responder con su propia aceleración.
+
+## Quiz de comprensión
+
+- **Pregunta:** ¿Por qué modelar dos pendientes en lugar de una sola cuando hay una intervención?
+- **Respuesta:** Porque la pendiente puede cambiar después de la intervención; una sola pendiente ocultaría ese cambio.
+
+- **Pregunta:** ¿Qué representa un efecto aleatorio en el cambio de pendiente?
+- **Respuesta:** Captura cuán diferente es la respuesta de cada paciente en la magnitud del cambio.
+
+<RCell id="piecewise-load" title="Serie interrumpida simulada" code={`set.seed(42)
+n <- 90
+time <- 1:n
+intervention <- ifelse(time > 45, 1, 0)
+y <- 5 + 0.1 * time + 0.5 * intervention * (time - 45) + rnorm(n, 0, 0.5)
+df <- data.frame(time, intervention, y, patient = factor(rep(1:30, each = 3)))
+mod_piece <- lmer(y ~ time + intervention + I(intervention * (time - 45)) + (1 + time | patient), data = df)
+summary(mod_piece)`} />
+
+<SASAccordion title="Alternativa en SAS" code={`proc mixed data=longdata;
+  class id phase;
+  model y = time intervention / solution;
+  random intercept time / subject=id;
+run;`} />
+
+<RCell id="piecewise-plot" title="Gráfica del cambio estructural" code={`library(ggplot2)
+df$phase <- ifelse(df$time <= 45, "before", "after")
+ggplot(df, aes(time, y, color = phase)) + geom_point(alpha = 0.6) + geom_smooth(method = "lm", se = FALSE)`} />

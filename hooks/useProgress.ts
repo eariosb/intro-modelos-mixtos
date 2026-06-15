@@ -58,7 +58,13 @@ export function useCourseProgress(total: number): CourseProgress {
     };
   }, []);
 
-  const pct = total === 0 ? 0 : Math.round((completedCount / total) * 100);
+  // `completedCount` reflects every slug ever marked complete in
+  // localStorage. If the course content changes (slugs renamed/removed)
+  // stale entries can outnumber the current module list, which previously
+  // produced percentages above 100%. Clamp both the displayed count and
+  // the percentage to `total`.
+  const clampedCount = Math.min(completedCount, total);
+  const pct = total === 0 ? 0 : Math.min(100, Math.round((clampedCount / total) * 100));
 
-  return { completedCount, total, pct };
+  return { completedCount: clampedCount, total, pct };
 }

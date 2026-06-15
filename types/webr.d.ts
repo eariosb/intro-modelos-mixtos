@@ -1,14 +1,15 @@
 /**
- * Tipos mínimos para `@r-wasm/webr`.
+ * Tipos mínimos para el paquete `webr` (sucesor de `@r-wasm/webr`, que
+ * quedó fijado en la versión 0.2.0 en este registro).
  *
- * La versión 0.2.0 del paquete declara un campo `exports` sin condición
- * `types` para su entrada principal, lo que impide que TypeScript (con
+ * El paquete declara un campo `exports` sin condición `types` para su
+ * entrada principal, lo que impide que TypeScript (con
  * `moduleResolution: "bundler"`) resuelva las declaraciones reales en
  * `dist/webR/webr-main.d.ts`. Esta declaración ambiente cubre únicamente
  * la superficie de API usada por `lib/webr.ts`, evitando el error de
  * compilación sin modificar el paquete de terceros.
  */
-declare module '@r-wasm/webr' {
+declare module 'webr' {
   export interface CaptureROutput {
     type: 'stdout' | 'stderr' | 'message' | 'warning' | 'error' | string;
     data: unknown;
@@ -41,11 +42,18 @@ declare module '@r-wasm/webr' {
     [key: string]: unknown;
   }
 
+  export interface WebRFS {
+    mkdir(path: string): Promise<void>;
+    writeFile(path: string, data: Uint8Array): Promise<void>;
+    readFile(path: string): Promise<Uint8Array>;
+  }
+
   export class WebR {
     constructor(options?: WebROptions);
     init(): Promise<void>;
     installPackages(packages: string[], options?: { quiet?: boolean }): Promise<void>;
     evalRVoid(code: string, options?: EvalROptions): Promise<void>;
     Shelter: new () => WebRShelter;
+    FS: WebRFS;
   }
 }

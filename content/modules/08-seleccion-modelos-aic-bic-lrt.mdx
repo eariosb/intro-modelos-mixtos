@@ -1,0 +1,218 @@
+---
+title: "Tabla de criterios y pruebas de razón de verosimilitud"
+slug: "seleccion-modelos-aic-bic-lrt"
+subtitle: "Uso de AIC/BIC y pruebas de razón de verosimilitud para elegir entre especificaciones anidadas."
+objective:
+  - "Diferenciar comparaciones de efectos fijos vs. efectos aleatorios y su requisito de ML."
+  - "Calcular y comparar AIC, BIC y logLik para varias especificaciones anidadas."
+  - "Aplicar e interpretar una prueba de razón de verosimilitud (LRT) con anova()."
+  - "Reconocer el problema del \"boundary\" al probar componentes de varianza."
+  - "Comunicar al equipo clínico por qué se elige un modelo y no otro."
+order: 8
+datasets:
+  - "SPRUCE1 (crecimiento de abetos Sitka, Control vs Ozone)"
+---
+
+## La pregunta detrás de la selección de modelos
+
+Hasta ahora hemos construido modelos cada vez más ricos: efectos fijos, efectos aleatorios, estructuras de covarianza. La pregunta natural es: **¿vale la pena toda esa complejidad?** Un modelo más complejo siempre se ajusta al menos igual de bien a los datos observados (en términos de verosimilitud), pero puede estar **sobreajustando**, capturando ruido en lugar de señal, y dificulta la interpretación.
+
+AIC, BIC y el LRT son tres formas de responder "¿el ajuste extra justifica la complejidad extra?", cada una con su propia penalización.
+
+## AIC, BIC y logLik
+
+$$
+\text{AIC} = -2\,\log L + 2k \qquad \text{BIC} = -2\,\log L + k \log(n)
+$$
+
+donde $\log L$ es la log-verosimilitud del modelo, $k$ el número de parámetros estimados y $n$ el tamaño de muestra. Ambos criterios premian un mejor ajuste (mayor $\log L$) pero penalizan más parámetros; **BIC penaliza más fuerte** cuando $n$ es grande, por lo que tiende a favorecer modelos más simples que AIC. **Menor valor = mejor**, en ambos casos.
+
+## La prueba de razón de verosimilitud (LRT)
+
+Para dos modelos **anidados** (el más simple es un caso particular del más complejo, fijando algunos parámetros en valores específicos, típicamente 0), la LRT compara:
+
+$$
+\Lambda = -2(\log L_{\text{simple}} - \log L_{\text{complejo}}) \;\sim\; \chi^2_{df}
+$$
+
+donde $df$ es la diferencia en número de parámetros. `anova(mod_simple, mod_complex)` calcula automáticamente $\Lambda$, los $df$ y el valor p asociado.
+
+## Efectos fijos vs. efectos aleatorios: ¡requiere ML!
+
+**Importante:** REML produce estimaciones de varianza insesgadas, pero las verosimilitudes REML de modelos con **distinta parte fija** no son comparables. Por eso, para comparar modelos que difieren en sus **efectos fijos** (p. ej. ¿agregar la interacción tiempo×grupo?), deben reajustarse con `REML = FALSE` antes de aplicar AIC/BIC/LRT. Una vez seleccionada la parte fija, el modelo final se reajusta con REML (por defecto) para reportar.
+
+## El problema del "boundary" al probar varianzas aleatorias
+
+Cuando la hipótesis nula es que una **varianza de efecto aleatorio es cero** (p. ej. ¿necesitamos la pendiente aleatoria, o $\tau_1^2 = 0$ basta?), el valor nulo está en el **borde** del espacio de parámetros (las varianzas no pueden ser negativas). Esto hace que la distribución $\chi^2$ estándar del LRT sea **conservadora**, el valor p real es aproximadamente la mitad del que reporta `anova()`. En la práctica, esto rara vez cambia la decisión cuando el LRT ya es claramente significativo o claramente no significativo, pero vale la pena tenerlo presente en casos límite.
+
+## De la tabla de criterios a la decisión
+
+Una buena práctica es construir una **tabla de candidatos** (modelo, AIC, BIC, logLik, número de parámetros) y razonar en conjunto: si AIC y BIC coinciden en el ganador, la decisión es más robusta. Si discrepan, prioriza el criterio que mejor refleje tu objetivo (BIC si priorizas parsimonia/interpretabilidad; AIC si priorizas predicción).
+
+<ProcessSteps title="Flujo de análisis" steps={[
+  {
+    title: "Definir candidatos anidados",
+    description: "Listar especificaciones que difieren en un solo aspecto a la vez (una pendiente aleatoria, una interacción, una covariable)."
+  },
+  {
+    title: "Reajustar con ML",
+    description: "Si los modelos difieren en efectos fijos, reajustar todos con REML = FALSE para que las verosimilitudes sean comparables."
+  },
+  {
+    title: "Calcular AIC/BIC/logLik",
+    description: "Construir una tabla comparativa con AIC(), BIC() y logLik() para cada candidato."
+  },
+  {
+    title: "Aplicar LRT donde corresponda",
+    description: "anova(mod_simple, mod_complex) para pares anidados; recordar la cautela del \"boundary\" en varianzas."
+  },
+  {
+    title: "Reajustar el ganador con REML",
+    description: "Una vez elegida la especificación final, reajustar con REML (por defecto) para el reporte de efectos fijos y varianzas."
+  }
+]} />
+
+<DataTable caption="Criterios de selección: qué penalizan y cuándo usarlos" columns={[
+  "Criterio",
+  "Penalización",
+  "Tiende a favorecer",
+  "Requiere modelos anidados"
+]} rows={[
+  [
+    "AIC",
+    "2 × número de parámetros (k)",
+    "Modelos algo más complejos (mejor predicción)",
+    "No"
+  ],
+  [
+    "BIC",
+    "log(n) × k (más fuerte si n es grande)",
+    "Modelos más parsimoniosos",
+    "No"
+  ],
+  [
+    "LRT (anova())",
+    "Distribución χ² con df = diferencia de parámetros",
+    "Decisión binaria con valor p",
+    "Sí"
+  ]
+]} />
+
+<Callout type="warning" title="Atención: REML = FALSE para comparar efectos fijos">
+Si comparas modelos con distinta parte fija usando REML (el valor por defecto), AIC/BIC/LRT no son válidos. Reajusta con REML = FALSE, compara, y solo al final vuelve a REML = TRUE para el modelo elegido.
+</Callout>
+
+<Callout type="info" title="Info: el LRT para varianzas es conservador">
+Al probar si una varianza de efecto aleatorio es cero, el valor p de anova() es aproximadamente el doble del valor "correcto" (problema de boundary). Si el resultado es claramente significativo o claramente no, esto rara vez cambia la conclusión.
+</Callout>
+
+<RCell id="spruce-refit-ml" title="Reajustar candidatos con ML para comparación" code={`# Cargamos paquetes y datos (SPRUCE1, igual que en Modulos 4-5)
+library(lme4)
+library(dplyr)
+
+spruce <- read.csv("https://raw.githubusercontent.com/jcsalazaru/datasets/main/SPRUCE1.csv")
+spruce <- spruce %>%
+  mutate(ID = factor(ID), Group = factor(Group), time_centered = time1 - mean(time1))
+
+# Tres candidatos anidados, todos con REML = FALSE para poder compararlos
+mod_intercepto   <- lmer(log_growth ~ time_centered * Group + (1 | ID), data = spruce, REML = FALSE)
+mod_pendiente    <- lmer(log_growth ~ time_centered * Group + (time_centered | ID), data = spruce, REML = FALSE)
+mod_sin_interac  <- lmer(log_growth ~ time_centered + Group + (time_centered | ID), data = spruce, REML = FALSE)
+
+# Tabla comparativa de criterios de informacion
+data.frame(
+  modelo = c("Solo intercepto aleatorio", "+ pendiente aleatoria", "Pendiente aleatoria, sin interaccion"),
+  AIC    = c(AIC(mod_intercepto), AIC(mod_pendiente), AIC(mod_sin_interac)),
+  BIC    = c(BIC(mod_intercepto), BIC(mod_pendiente), BIC(mod_sin_interac)),
+  logLik = c(logLik(mod_intercepto), logLik(mod_pendiente), logLik(mod_sin_interac))
+)`} />
+
+<SASAccordion title="Alternativa en SAS: comparar -2LL, AIC y BIC entre PROC MIXED" code={`/* Ajustar cada candidato con METHOD=ML y comparar la tabla
+   "Fit Statistics" (-2 Log Likelihood, AIC, AICC, BIC) */
+
+PROC MIXED DATA=spruce1 METHOD=ML;
+  CLASS id group;
+  MODEL log_growth = time_centered group time_centered*group / SOLUTION;
+  RANDOM INTERCEPT / SUBJECT=id;
+RUN;
+
+PROC MIXED DATA=spruce1 METHOD=ML;
+  CLASS id group;
+  MODEL log_growth = time_centered group time_centered*group / SOLUTION;
+  RANDOM INTERCEPT time_centered / SUBJECT=id TYPE=UN;
+RUN;
+
+/* La diferencia de -2 Log Likelihood entre los dos modelos, comparada
+   contra una chi-cuadrado con los df de diferencia de parametros,
+   reproduce el LRT de anova() en R. Reajustar el modelo final con
+   METHOD=REML (valor por defecto) para el reporte. */`} />
+
+<RCell id="spruce-lrt" title="Pruebas de razón de verosimilitud (LRT)" code={`# 1) Vale la pena la pendiente aleatoria?
+anova(mod_intercepto, mod_pendiente)
+
+# 2) Vale la pena la interaccion tiempo x grupo?
+anova(mod_sin_interac, mod_pendiente)`} />
+
+<RCell id="spruce-refit-reml" title="Reajustar el modelo elegido con REML para reportar" code={`# Supongamos que mod_pendiente fue el modelo elegido.
+# Lo reajustamos con REML (valor por defecto) para el reporte final.
+mod_final <- lmer(
+  log_growth ~ time_centered * Group + (time_centered | ID),
+  data = spruce  # REML = TRUE por defecto
+)
+summary(mod_final)
+VarCorr(mod_final)`} />
+
+<Flashcards items={[
+  {
+    front: "¿Qué significa que dos modelos sean \"anidados\"?",
+    back: "Que el modelo más simple es un caso particular del más complejo, obtenido fijando uno o más de sus parámetros en valores específicos (típicamente cero)."
+  },
+  {
+    front: "¿Por qué hay que usar REML = FALSE para comparar modelos con distinta parte fija?",
+    back: "Porque las verosimilitudes REML no son comparables entre modelos con distintos efectos fijos; ML sí lo permite. El modelo final se reajusta con REML para reportar."
+  },
+  {
+    front: "¿Qué indica un AIC o BIC más bajo?",
+    back: "Un mejor balance entre ajuste y complejidad: el modelo con menor AIC/BIC es preferido bajo ese criterio."
+  },
+  {
+    front: "¿Qué problema especial surge al probar si una varianza de efecto aleatorio es cero?",
+    back: "El valor nulo está en el borde del espacio de parámetros (boundary), lo que hace que el valor p del LRT estándar sea conservador (aprox. el doble del valor \"correcto\")."
+  }
+]} />
+
+<Quiz questions={[
+  {
+    question: "Quieres comparar un modelo con y sin la interacción tiempo×grupo (mismos efectos aleatorios). ¿Qué debes hacer antes de comparar AIC/BIC/LRT?",
+    options: [
+      "Nada, se pueden comparar directamente con REML",
+      "Reajustar ambos modelos con REML = FALSE (ML)",
+      "Usar solo el modelo con mayor R²",
+      "Comparar solo los valores de BIC, nunca AIC"
+    ],
+    correctIndex: 1,
+    explanation: "Cuando los modelos difieren en efectos fijos, las verosimilitudes deben calcularse con ML (REML = FALSE) para que la comparación sea válida."
+  },
+  {
+    question: "anova(mod_intercepto, mod_pendiente) da un valor p = 0.04 para la pendiente aleatoria. ¿Qué precaución aplica?",
+    options: [
+      "Ninguna, el resultado es exacto",
+      "El valor p podría ser conservador (boundary); el valor \"correcto\" sería aproximadamente la mitad, lo que en este caso no cambia la conclusión",
+      "El resultado es inválido y debe ignorarse",
+      "Hay que multiplicar el valor p por el número de observaciones"
+    ],
+    correctIndex: 1,
+    explanation: "Al probar varianzas de efectos aleatorios, el LRT estándar es conservador por el problema de boundary; con p = 0.04 la conclusión (significativo) probablemente no cambia."
+  },
+  {
+    question: "AIC favorece el modelo A y BIC favorece el modelo B (más simple). ¿Qué interpretación es razonable?",
+    options: [
+      "Uno de los dos criterios está mal calculado",
+      "Hay que reportar ambos modelos sin elegir ninguno",
+      "La discrepancia refleja el trade-off ajuste/parsimonia: si priorizas interpretabilidad y simplicidad, B; si priorizas capacidad predictiva, A, y conviene justificar la elección",
+      "Siempre se debe preferir el modelo con más parámetros"
+    ],
+    correctIndex: 2,
+    explanation: "AIC y BIC penalizan la complejidad de forma distinta; cuando discrepan, la elección debe justificarse según el objetivo del análisis (predicción vs. parsimonia/interpretación)."
+  }
+]} />

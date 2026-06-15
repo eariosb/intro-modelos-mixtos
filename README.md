@@ -52,7 +52,7 @@ Al finalizar el curso, el estudiante será capaz de:
 
 - [Next.js 14](https://nextjs.org/) (App Router) + [TypeScript](https://www.typescriptlang.org/) estricto
 - [Tailwind CSS](https://tailwindcss.com/) + [`@tailwindcss/typography`](https://github.com/tailwindlabs/tailwindcss-typography)
-- [`@r-wasm/webr`](https://docs.r-wasm.org/webr/latest/) — R completo vía WebAssembly, 100% en el cliente
+- [`webr`](https://docs.r-wasm.org/webr/latest/) — R completo vía WebAssembly, 100% en el cliente
 - [`@uiw/react-codemirror`](https://uiwjs.github.io/react-codemirror/) con modos de R y SAS para resaltado de sintaxis
 - [`react-markdown`](https://github.com/remarkjs/react-markdown) + [`remark-math`](https://github.com/remarkjs/remark-math) + [`rehype-katex`](https://github.com/remarkjs/remark-math/tree/main/packages/rehype-katex) + [KaTeX](https://katex.org/) para notación matemática
 - [Jest](https://jestjs.io/) + [React Testing Library](https://testing-library.com/docs/react-testing-library/intro/) para pruebas
@@ -137,48 +137,139 @@ adicionales.
 
 ```
 app/
-  layout.tsx                  # Layout raíz, fuente Inter, WebRProvider
-  page.tsx                    # Portada / índice del curso
-  lecciones/[slug]/page.tsx   # Página genérica de cada lección
+  layout.tsx                                  # Layout raíz, fuente Inter, WebRProvider
+  page.tsx                                    # Portada / índice del curso
+  cursos/[course]/modulos/[slug]/page.tsx     # Página genérica de cada módulo (MDX)
 components/
   layout/Logo.tsx             # Logo tipográfico del curso (SVG inline)
   AppLayout.tsx               # Shell (sidebar + main + footer)
   Sidebar.tsx                 # Índice colapsable del curso (desktop + drawer móvil)
   Footer.tsx                  # Pie de página con logo, licencia y créditos
-  Breadcrumb.tsx
   ProgressBar.tsx             # Barra de progreso (usa useCourseProgress)
-  LessonProgressTracker.tsx   # Marca la lección actual como completada
-  LessonContent.tsx           # Render de markdown + LaTeX
+  LessonProgressTracker.tsx   # Marca el módulo actual como completado
   RCell.tsx                   # Celda de código R editable y ejecutable
   ConsoleOutput.tsx           # Salida de consola truncada (con expandir "+")
   SASAccordion.tsx            # Acordeón con código SAS de referencia
   Callout.tsx, Quiz.tsx, Flashcard.tsx, DataTable.tsx, ProcessSteps.tsx
   WebRProvider.tsx            # Contexto global de WebR
 content/
-  types.ts                    # Tipos de módulos/lecciones
-  modules.ts                  # Módulos 1-3 (inline) + re-exporta extraModules (4-15)
-  modules-extra.ts            # Módulos 4-15
-  markdown-loader.ts          # Carga lecciones largas desde content/modules-md/*.md
-hooks/
-  useWebR.ts                  # useRCell(): ejecución de celdas R contra WebR
-  useProgress.ts              # useMarkLessonComplete() / useCourseProgress()
-  useModuleContent.ts         # useModuleContent(slug): módulo+lección+vecinos+markdown
+  modules/                    # Un .mdx por módulo: NN-slug-metodo.mdx
+mdx-components.tsx            # Mapa global de componentes MDX (RCell, Quiz, etc.)
+types/
+  course.ts                   # Tipos centralizados: ModuleMeta, RCellProps, QuizProps, ...
 lib/
-  webr.ts                     # Instancia compartida de WebR, captura de salidas/plots
+  webr.ts                      # Instancia compartida de WebR, captura de salidas/plots
+  courses.ts                   # Lectura de content/modules/*.mdx (frontmatter + fuente)
+hooks/
+  useWebR.ts                   # useRCell(): ejecución de celdas R contra WebR
+  useProgress.ts               # useMarkLessonComplete() / useCourseProgress()
+scripts/
+  generate-mdx.ts              # Herramienta de migración/mantenimiento (histórica)
 ```
 
-## Principios de diseño
+## Arquitectura de contenido (MDX)
 
-- **Contenido desacoplado del código**: cada módulo y lección se define como
-  datos (`content/modules.ts` / `content/modules-extra.ts`), siguiendo los
-  tipos de `content/types.ts`. Añadir o editar contenido no requiere tocar
-  componentes ni rutas.
-- **Hooks como capa de acceso**: `app/lecciones/[slug]/page.tsx` no importa
-  directamente la capa de contenido — depende de `hooks/useModuleContent.ts`,
-  que resuelve módulo, lección, vecinos y markdown.
-- **Componentes de bloque uniformes**: `Callout`, `DataTable`, `Flashcard`,
-  `Quiz`, `ProcessSteps` y `SASAccordion` reciben únicamente los props que
-  necesitan y se renderizan de forma uniforme para cualquier lección.
+Todo el contenido pedagógico vive en `content/modules/` como archivos
+`.mdx`, **uno por módulo**, nombrados `NN-slug-metodo.mdx` (dos dígitos de
+orden + slug en kebab-case basado en el método/tema estadístico, nunca en el
+nombre del dataset). Cada archivo es autónomo: front matter YAML + contenido
+MDX que solo depende de los componentes globales registrados en
+`mdx-components.tsx`.
+
+### Front matter
+
+```yaml
+---
+title: "Título del módulo"
+slug: "slug-del-metodo"
+subtitle: "Una línea de contexto/resumen"
+objective:
+  - "Primer objetivo de aprendizaje"
+  - "Segundo objetivo"
+order: 4
+datasets:
+  - "Nombre del dataset (paquete)"
+---
+```
+
+### Componentes disponibles dentro del MDX
+
+| Componente | Uso |
+| --- | --- |
+| `<Callout type="tip\|info\|warning\|success" title="...">...</Callout>` | Recuadro destacado |
+| `<RCell id="..." title="..." code={\`...\`} />` | Celda de código R ejecutable (WebR) |
+| `<SASAccordion title="..." code={\`...\`} />` | Acordeón con código SAS de referencia |
+| `<DataTable caption="..." columns={[...]} rows={[...]} />` | Tabla de datos/resultados |
+| `<ProcessSteps title="..." steps={[{title, description}, ...]} />` | Lista numerada de pasos |
+| `<Flashcards items={[{front, back}, ...]} />` | Grid de flashcards de repaso |
+| `<Quiz questions={[{question, options, correctIndex, explanation}, ...]} />` | Autoevaluación |
+
+Fórmulas LaTeX se escriben igual que antes: `$...$` para inline y `$$...$$`
+para bloque (soportado vía `remark-math` + `rehype-katex`).
+
+### Ejemplo mínimo de un módulo nuevo
+
+```mdx
+---
+title: "Modelos mixtos bayesianos: una introducción"
+slug: "intro-modelos-bayesianos"
+subtitle: "Priors, MCMC y brms en el contexto de medidas repetidas."
+objective:
+  - "Explicar la diferencia entre inferencia frecuentista y bayesiana."
+  - "Ajustar un LMM bayesiano simple con brms."
+order: 16
+datasets:
+  - "sleepstudy (lme4)"
+---
+
+## Motivación
+
+Los modelos bayesianos permiten incorporar conocimiento previo...
+
+<Callout type="info" title="¿Por qué bayesiano?">
+Los intervalos de credibilidad tienen una interpretación directa de probabilidad.
+</Callout>
+
+<RCell id="brms-fit" title="Ajustar un LMM bayesiano" code={`library(brms)
+mod <- brm(Reaction ~ Days + (Days | Subject), data = sleepstudy)
+summary(mod)`} />
+
+<Quiz questions={[
+  {
+    question: "¿Qué representa un intervalo de credibilidad del 95%?",
+    options: ["Lo mismo que un IC frecuentista", "La región que contiene el 95% de la probabilidad posterior", "Un valor p"],
+    correctIndex: 1,
+    explanation: "A diferencia del IC frecuentista, tiene una interpretación probabilística directa sobre el parámetro."
+  }
+]} />
+```
+
+Para que aparezca en la barra lateral y en la portada basta con guardar el
+archivo en `content/modules/16-intro-modelos-bayesianos.mdx` — `lib/courses.ts`
+lee el directorio en build/runtime y ordena los módulos por el campo `order`
+del front matter. No es necesario tocar componentes ni rutas.
+
+## Principios de diseño (SOLID)
+
+- **Single Responsibility**: cada componente de bloque (`Callout`, `RCell`,
+  `SASAccordion`, `Quiz`, `Flashcards`, `DataTable`, `ProcessSteps`) renderiza
+  exactamente un tipo de contenido y no conoce el resto de la lección.
+- **Open/Closed**: añadir o editar un módulo es agregar/editar un `.mdx` en
+  `content/modules/` — no requiere modificar `app/cursos/.../page.tsx`,
+  `Sidebar` ni `lib/courses.ts`.
+- **Liskov / interfaces uniformes**: los props de cada componente de bloque
+  están centralizados en `types/course.ts` (`RCellProps`, `QuizProps`,
+  `FlashcardProps`, `DataTableProps`, `ProcessStepsProps`, `CalloutProps`,
+  `SASAccordionProps`), de modo que cualquier `.mdx` puede usarlos de forma
+  intercambiable y predecible.
+- **Interface Segregation**: `lib/courses.ts` expone solo lo que las páginas
+  necesitan (`getAllModules`, `findModule`, `getModuleSource`,
+  `getAdjacentModules`) sin filtrar detalles de `gray-matter` o del sistema
+  de archivos.
+- **Dependency Inversion**: la página dinámica
+  (`app/cursos/[course]/modulos/[slug]/page.tsx`) y el `Sidebar` dependen de
+  la abstracción `lib/courses.ts`, no del formato de archivo subyacente — si
+  el contenido se migrara a un CMS, solo cambiaría esa capa.
 
 ## Pruebas
 

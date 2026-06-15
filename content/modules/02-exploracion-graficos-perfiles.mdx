@@ -1,0 +1,100 @@
+---
+title: "Visualización de datos longitudinales con ggplot2"
+slug: "exploracion-graficos-perfiles"
+subtitle: "Gráficos de perfiles, perfiles promedio y detección de patrones de anidamiento con ggplot2."
+objective:
+  - "Construir gráficos de perfiles individuales (\"spaghetti plots\")."
+  - "Construir gráficos de perfiles promedio por grupo."
+  - "Combinar perfiles individuales y promedios en un mismo gráfico."
+  - "Detectar visualmente heterogeneidad entre sujetos (justificación de efectos aleatorios)."
+  - "Comparar grupos experimentales mediante boxplots y densidades."
+order: 2
+datasets:
+  - "SPRUCE1 (abetos de Sitka, clases 3 y 5)"
+---
+
+## Por qué empezar por la exploración gráfica
+
+Antes de ajustar cualquier modelo, **es indispensable visualizar la estructura longitudinal de los datos**. Los gráficos de perfiles permiten responder preguntas clave:
+
+- ¿Las trayectorias individuales son aproximadamente paralelas (sugiere solo intercepto aleatorio) o divergen (sugiere pendiente aleatoria)?
+- ¿Existen grupos con comportamientos claramente distintos?
+- ¿Hay valores atípicos o sujetos con trayectorias anómalas?
+
+## Datos: crecimiento de abetos de Sitka (SPRUCE1)
+
+Usaremos el dataset `SPRUCE1`, que registra el **logaritmo del crecimiento** (`log_growth`) de árboles de Sitka medidos repetidamente en el tiempo (`time1`), bajo dos condiciones experimentales (`Group`: *Control* vs *Ozone*). Cada árbol tiene un identificador `ID`.
+
+Esta es la misma estructura de las Clases 3 y 5 del curso: un diseño de **medidas repetidas con dos grupos**, ideal para introducir gráficos de perfiles antes de modelar.
+
+## Tipos de gráficos a construir
+
+1. **Perfiles individuales** (spaghetti plot): una línea por árbol, coloreada por grupo.
+2. **Perfiles promedio**: la media de `log_growth` por grupo en cada tiempo, que resume la tendencia poblacional.
+3. **Perfiles individuales + promedio superpuestos**: permite juzgar cuánta variabilidad hay alrededor de la tendencia media.
+4. **Boxplot/densidad globales** (ignorando el tiempo): útil como resumen, pero **insuficiente** por sí solo porque oculta la correlación intra-sujeto.
+
+Modifica el código de las celdas, por ejemplo cambia `geom_line` por `geom_smooth`, o filtra solo el grupo `"Ozone"`, y vuelve a ejecutar para explorar.
+
+<RCell id="spruce-load" title="Cargar y explorar SPRUCE1" code={`library(ggplot2)
+
+# Dataset de crecimiento de abetos de Sitka (Control vs Ozone)
+data <- read.csv("https://raw.githubusercontent.com/jcsalazaru/datasets/main/SPRUCE1.csv")
+
+str(data)
+head(data)
+table(data$Group)`} />
+
+<SASAccordion title="Gráficos de perfiles con PROC SGPLOT" code={`/* Perfiles individuales coloreados por grupo */
+PROC SGPLOT DATA=spruce1;
+  SERIES x=time1 y=log_growth / group=id GROUPLC=group LINEATTRS=(THICKNESS=1);
+  XAXIS LABEL="Tiempo";
+  YAXIS LABEL="log(crecimiento)";
+RUN;
+
+/* Perfil promedio por grupo */
+PROC SGPLOT DATA=spruce1;
+  VLINE time1 / RESPONSE=log_growth GROUP=group STAT=MEAN
+                 MARKERS LINEATTRS=(THICKNESS=2);
+  XAXIS LABEL="Tiempo";
+  YAXIS LABEL="log(crecimiento) promedio";
+RUN;
+
+/* Boxplot global por grupo */
+PROC SGPLOT DATA=spruce1;
+  VBOX log_growth / CATEGORY=group;
+RUN;`} />
+
+<RCell id="spruce-spaghetti" title="Perfiles individuales por grupo" code={`library(ggplot2)
+
+ggplot(data, aes(x = time1, y = log_growth, group = ID)) +
+  geom_line(aes(color = Group), alpha = 0.6) +
+  geom_point(size = 1.5, aes(color = Group)) +
+  scale_colour_brewer(palette = "Set1") +
+  labs(title = "Perfiles individuales de crecimiento (log)",
+       x = "Tiempo", y = "log(crecimiento)") +
+  theme_minimal()`} />
+
+<RCell id="spruce-mean-profiles" title="Perfiles promedio por grupo" code={`library(ggplot2)
+
+ggplot(data, aes(x = time1, y = log_growth)) +
+  stat_summary(aes(group = Group, color = Group),
+               geom = "line", fun = mean, linewidth = 1.4) +
+  stat_summary(aes(group = Group, color = Group),
+               geom = "point", fun = mean, size = 3) +
+  scale_colour_brewer(palette = "Set1") +
+  labs(title = "Perfil promedio por grupo (tendencia poblacional)",
+       x = "Tiempo", y = "log(crecimiento) promedio") +
+  theme_minimal()`} />
+
+<RCell id="spruce-boxplot" title="Resumen global: boxplot por grupo" code={`library(ggplot2)
+
+means1 <- round(c(by(data$log_growth, data$Group, mean)), 3)
+
+ggplot(data, aes(x = Group, y = log_growth, fill = Group)) +
+  geom_boxplot(alpha = 0.6) +
+  stat_summary(fun = mean, geom = "point", shape = 23, size = 3, fill = "white") +
+  labs(title = "Distribucion global de log(crecimiento) por grupo",
+       subtitle = "Util como resumen, pero ignora la estructura temporal",
+       x = NULL, y = "log(crecimiento)") +
+  theme_minimal()`} />

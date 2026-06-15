@@ -1,0 +1,236 @@
+---
+title: "Infección ungueal (binomial) y eventos de coldfeet (Poisson)"
+slug: "glmm-binomial-poisson"
+subtitle: "Familias binomial y Poisson para respuestas no gaussianas con efectos aleatorios."
+objective:
+  - "Explicar por qué un LMM no es apropiado para respuestas binarias o de conteo."
+  - "Especificar un GLMM binomial con intercepto aleatorio (TOENAIL2)."
+  - "Interpretar coeficientes en la escala logit como odds ratios (OR)."
+  - "Especificar un GLMM de Poisson con offset para modelar tasas (Coldfeet)."
+  - "Distinguir la interpretación condicional (por sujeto) de la marginal (poblacional)."
+order: 7
+datasets:
+  - "TOENAIL2 (infección ungueal, respuesta binaria)"
+  - "Coldfeet (conteos de eventos por centro)"
+---
+
+## Cuando la respuesta no es continua
+
+Los modelos del Módulo 4-6 asumen que, condicional en los efectos aleatorios, la respuesta es **aproximadamente normal** con varianza constante. Esto deja de ser razonable cuando la respuesta es:
+
+- **Binaria** (presencia/ausencia de infección, éxito/fracaso de un tratamiento) → distribución **Bernoulli/binomial**.
+- **De conteo** (número de eventos en un periodo) → distribución **Poisson** (o binomial negativa si hay sobredispersión).
+
+Un **GLMM** (*Generalized Linear Mixed Model*) extiende el LMM agregando dos ingredientes: una **familia de distribución** apropiada para la respuesta, y una **función de enlace** $g(\cdot)$ que conecta el predictor lineal con la media de esa distribución:
+
+$$
+g(E[y_{it} \mid b_i]) = \beta_0 + \beta_1 \, \text{tiempo}_{it} + \beta_2 \, \text{trat}_i + \dots + b_{0i}
+$$
+
+## Caso 1: infección ungueal (binomial)
+
+`TOENAIL2` registra, en visitas repetidas, si la infección ungueal sigue presente ($y=1$) o no ($y=0$) para cada paciente bajo dos tratamientos antifúngicos. Con enlace **logit**:
+
+$$
+\text{logit}\big(P(y_{it}=1 \mid b_{0i})\big) = \log\left(\frac{P(y_{it}=1)}{1-P(y_{it}=1)}\right) = \beta_0 + \beta_1 \, \text{time}_{it} + \beta_2 \, \text{treat}_i + \beta_3 (\text{time} \times \text{treat}) + b_{0i}
+$$
+
+Exponenciando un coeficiente $\beta_k$ obtenemos un **odds ratio (OR)**: $e^{\beta_2}$ es el OR de seguir infectado para el tratamiento vs. el control, **para un paciente dado** (interpretación condicional, "a nivel de paciente").
+
+## Caso 2: eventos de coldfeet (Poisson con offset)
+
+`Coldfeet` registra el número de eventos $y$ observados en $n$ pacientes por centro y tratamiento. Para modelar una **tasa** (eventos por paciente) en lugar de un conteo crudo, usamos un **offset**:
+
+$$
+\log(E[y_{ij}]) = \log(n_{ij}) + \beta_0 + \beta_1 \, \text{treat}_j + b_{0i}
+$$
+
+El término $\log(n_{ij})$ se fija con coeficiente 1 (el `offset()`), de modo que $\beta_1$ se interpreta sobre la **tasa** $y_{ij}/n_{ij}$, no sobre el conteo crudo. Exponenciando $\beta_1$ obtenemos un **rate ratio (RR)**: cuántas veces más (o menos) frecuente es el evento bajo tratamiento, por centro.
+
+## Condicional vs. marginal: una distinción clave
+
+En GLMM, el efecto aleatorio entra **dentro** de la función de enlace (no de forma aditiva en la escala de la respuesta, como en un LMM). Esto tiene una consecuencia importante: los coeficientes de un GLMM son **condicionales**, "para un paciente/centro dado, fijado su efecto aleatorio", y **no son directamente comparables** con los coeficientes de un modelo marginal (GEE, Módulo 10), que describen el efecto **promedio en la población**. Ambas interpretaciones son válidas; lo importante es no mezclarlas al comunicar resultados.
+
+<ProcessSteps title="Flujo de análisis" steps={[
+  {
+    title: "Identificar la distribución",
+    description: "Binaria/proporción → binomial; conteos → Poisson (revisar sobredispersión); ambas con enlace canónico (logit / log)."
+  },
+  {
+    title: "Especificar el offset (si aplica)",
+    description: "Para modelar tasas en datos de conteo, incluir offset(log(n)) con el denominador apropiado (tiempo, número de sujetos, etc.)."
+  },
+  {
+    title: "Ajustar con glmer()",
+    description: "glmer(y ~ ... + (1 | grupo), family = binomial()/poisson()), por defecto usa aproximación de Laplace."
+  },
+  {
+    title: "Exponenciar e interpretar",
+    description: "exp(coef) para obtener OR (binomial) o RR (Poisson); recordar que son interpretaciones condicionales."
+  },
+  {
+    title: "Revisar sobredispersión",
+    description: "En Poisson, comparar varianza residual observada vs. esperada (DHARMa, Módulo 6); considerar binomial negativa si hay sobredispersión marcada."
+  }
+]} />
+
+<DataTable caption="De LMM a GLMM: qué cambia según el tipo de respuesta" columns={[
+  "Tipo de respuesta",
+  "Familia",
+  "Función de enlace",
+  "Interpretación de exp(β)",
+  "Ejemplo"
+]} rows={[
+  [
+    "Continua",
+    "gaussian",
+    "identidad",
+    "Cambio aditivo en la media",
+    "log_growth (Módulo 4)"
+  ],
+  [
+    "Binaria / proporción",
+    "binomial",
+    "logit",
+    "Odds ratio (OR)",
+    "TOENAIL2 (infección sí/no)"
+  ],
+  [
+    "Conteo",
+    "poisson",
+    "log",
+    "Rate ratio (RR)",
+    "Coldfeet (eventos por centro)"
+  ]
+]} />
+
+<Callout type="tip" title="Tip: el offset no es un efecto fijo cualquiera">
+offset(log(n)) entra en el modelo con coeficiente fijo igual a 1, no se estima. Su función es trasladar el modelo de "conteo crudo" a "tasa por unidad de exposición".
+</Callout>
+
+<Callout type="warning" title="Atención: condicional ≠ marginal">
+Un OR de un GLMM ("para un paciente dado") y un OR de un modelo marginal/GEE ("en promedio en la población") pueden diferir en magnitud, especialmente con varianza entre sujetos grande. No los presentes como si fueran intercambiables.
+</Callout>
+
+<RCell id="toenail-glmm" title="GLMM binomial con TOENAIL2" code={`# Cargamos paquetes y datos
+library(lme4)
+library(dplyr)
+
+toenail <- read.csv("https://raw.githubusercontent.com/jcsalazaru/datasets/main/toenail2.csv")
+toenail <- toenail %>%
+  mutate(idnew  = factor(idnew),
+         treatn = factor(treatn),
+         y      = as.integer(y))
+
+# Intercepto aleatorio por paciente; enlace logit (familia binomial)
+mod_bin <- glmer(
+  y ~ time * treatn + (1 | idnew),
+  data = toenail, family = binomial(link = "logit")
+)
+summary(mod_bin)
+
+# Odds ratios: exponenciamos los coeficientes de efectos fijos
+exp(fixef(mod_bin))`} />
+
+<SASAccordion title="Alternativa en SAS: PROC GLIMMIX" code={`/* GLMM binomial: equivalente a glmer(y ~ time*treatn + (1|idnew), family=binomial) */
+PROC GLIMMIX DATA=toenail2;
+  CLASS idnew treatn;
+  MODEL y(EVENT='1') = time treatn time*treatn / SOLUTION DIST=BINARY LINK=LOGIT;
+  RANDOM INTERCEPT / SUBJECT=idnew;
+RUN;
+
+/* GLMM de Poisson con offset: equivalente a
+   glmer(y ~ treat + (1|center) + offset(log(n)), family=poisson) */
+PROC GLIMMIX DATA=coldfeet;
+  CLASS center treat;
+  MODEL y = treat / SOLUTION DIST=POISSON LINK=LOG OFFSET=logn;
+  RANDOM INTERCEPT / SUBJECT=center;
+RUN;
+
+/* logn debe crearse previamente como logn = log(n); */`} />
+
+<RCell id="coldfeet-poisson" title="GLMM de Poisson con offset para tasas por centro" code={`library(lme4)
+
+coldfeet <- read.csv("https://raw.githubusercontent.com/jcsalazaru/datasets/main/coldfeet.csv")
+coldfeet <- coldfeet %>%
+  mutate(center = factor(center),
+         treat  = factor(treat),
+         y      = as.integer(y),
+         n      = as.integer(n))
+
+# offset(log(n)): modelamos la tasa y/n, no el conteo crudo
+mod_count <- glmer(
+  y ~ treat + (1 | center) + offset(log(n)),
+  data = coldfeet, family = poisson(link = "log")
+)
+summary(mod_count)
+
+# Rate ratios: exponenciamos los coeficientes
+exp(fixef(mod_count))`} />
+
+<RCell id="glmm-predicciones" title="Tasas predichas por tratamiento (Coldfeet)" code={`library(ggplot2)
+
+# Predecimos en la escala de la respuesta (tasa), fijando n = 1
+new_data <- data.frame(treat = levels(coldfeet$treat), n = 1)
+new_data$rate_pred <- predict(mod_count, newdata = new_data, re.form = NA, type = "response")
+
+ggplot(new_data, aes(treat, rate_pred)) +
+  geom_col(fill = "#2c7a7b") +
+  labs(title = "Tasa predicha de eventos por tratamiento",
+       x = "Tratamiento", y = "Tasa predicha (eventos por paciente)") +
+  theme_minimal()`} />
+
+<Flashcards items={[
+  {
+    front: "¿Qué dos ingredientes añade un GLMM respecto a un LMM?",
+    back: "Una familia de distribución apropiada para la respuesta (binomial, Poisson, etc.) y una función de enlace que conecta el predictor lineal con la media de esa distribución."
+  },
+  {
+    front: "¿Cómo se interpreta exp(β) en un GLMM binomial con enlace logit?",
+    back: "Como un odds ratio (OR): cuántas veces cambian las probabilidades (odds) de la respuesta por unidad de cambio en la covariable, para un sujeto dado."
+  },
+  {
+    front: "¿Para qué sirve offset(log(n)) en un GLMM de Poisson?",
+    back: "Para modelar una tasa (eventos por unidad de exposición n) en lugar del conteo crudo, sin estimar un coeficiente adicional para n."
+  },
+  {
+    front: "¿Por qué los coeficientes de un GLMM se llaman \"condicionales\"?",
+    back: "Porque se interpretan fijando el efecto aleatorio de un sujeto/centro particular (\"para ese sujeto\"), a diferencia de los modelos marginales que describen el efecto promedio poblacional."
+  }
+]} />
+
+<Quiz questions={[
+  {
+    question: "TOENAIL2 registra si la infección sigue presente (1) o no (0) en cada visita. ¿Qué familia y enlace son apropiados?",
+    options: [
+      "gaussian / identidad",
+      "binomial / logit",
+      "poisson / log",
+      "binomial / log"
+    ],
+    correctIndex: 1,
+    explanation: "Una respuesta binaria repetida se modela con familia binomial y enlace logit, lo que permite interpretar los efectos como odds ratios."
+  },
+  {
+    question: "En el modelo de Coldfeet, ¿qué representa exp(β_treat)?",
+    options: [
+      "La diferencia absoluta en el número de eventos",
+      "El rate ratio: cuántas veces más frecuente es el evento bajo tratamiento vs. control, por centro",
+      "La probabilidad de tener al menos un evento",
+      "La varianza del efecto aleatorio de centro"
+    ],
+    correctIndex: 1,
+    explanation: "Con enlace log y offset, exp(β_treat) es un rate ratio: compara la tasa de eventos entre tratamiento y control, para un centro dado."
+  },
+  {
+    question: "Un colega dice que el OR de un GLMM y el OR de un modelo GEE para la misma pregunta \"deberían ser idénticos\". ¿Qué les responderías?",
+    options: [
+      "Tiene razón, ambos modelos siempre dan el mismo OR",
+      "No necesariamente: el GLMM da un OR condicional (por sujeto) y el GEE un OR marginal (poblacional); pueden diferir, especialmente con varianza entre sujetos grande",
+      "El GEE no produce odds ratios",
+      "El GLMM nunca produce odds ratios"
+    ],
+    correctIndex: 1,
+    explanation: "La interpretación condicional (GLMM) y marginal (GEE) responden preguntas distintas y pueden producir magnitudes distintas; la elección depende de la pregunta de interés (Módulo 10)."
+  }
+]} />

@@ -1,0 +1,234 @@
+---
+title: "Elegir estructuras de covarianza a partir de datos reales"
+slug: "estructuras-covarianza-cs-ar1-un"
+subtitle: "Comparar estructuras CS, AR(1) y UN y entender la matriz de covarianza residual."
+objective:
+  - "Diferenciar conceptualmente entre las estructuras CS, AR(1) y UN."
+  - "Ajustar las tres estructuras sobre SPRUCE1 con nlme::lme()."
+  - "Elegir la estructura apropiada según el espaciamiento temporal y el número de ocasiones."
+  - "Comparar modelos anidados con AIC/BIC y anova()."
+  - "Visualizar la matriz de correlación residual estimada."
+order: 5
+datasets:
+  - "SPRUCE1 (crecimiento de abetos Sitka, Control vs Ozone)"
+---
+
+## Más allá de la matriz D
+
+En el Módulo 4 modelamos la heterogeneidad **entre sujetos** con efectos aleatorios (intercepto y pendiente). Pero todavía asumimos que, *dentro* de cada árbol, los residuos $\varepsilon_{it}$ son independientes con varianza constante $\sigma^2$. En datos longitudinales eso casi nunca es cierto: dos mediciones tomadas con una semana de diferencia suelen parecerse más entre sí que dos mediciones tomadas con un año de diferencia.
+
+La **estructura de covarianza residual** modela justamente esa correlación intra-sujeto que los efectos aleatorios no capturan del todo. Elegir bien esta estructura mejora la eficiencia de las estimaciones y, sobre todo, evita errores estándar mal calculados (demasiado pequeños o demasiado grandes).
+
+## Tres estructuras clásicas
+
+Para un sujeto con $n$ ocasiones de medición, la matriz de correlación residual $R$ ($n \times n$) puede especificarse de varias formas:
+
+$$
+R_{\text{CS}} = \begin{pmatrix} 1 & \rho & \rho & \rho \\ \rho & 1 & \rho & \rho \\ \rho & \rho & 1 & \rho \\ \rho & \rho & \rho & 1 \end{pmatrix}
+\qquad
+R_{\text{AR1}} = \begin{pmatrix} 1 & \rho & \rho^2 & \rho^3 \\ \rho & 1 & \rho & \rho^2 \\ \rho^2 & \rho & 1 & \rho \\ \rho^3 & \rho^2 & \rho & 1 \end{pmatrix}
+\qquad
+R_{\text{UN}} = \begin{pmatrix} 1 & \rho_{12} & \rho_{13} & \rho_{14} \\ \rho_{12} & 1 & \rho_{23} & \rho_{24} \\ \rho_{13} & \rho_{23} & 1 & \rho_{34} \\ \rho_{14} & \rho_{24} & \rho_{34} & 1 \end{pmatrix}
+$$
+
+- **CS (Compound Symmetry / simetría compuesta):** una sola correlación $\rho$ entre cualquier par de ocasiones, sin importar qué tan separadas estén. Es la estructura implícita de un modelo con solo intercepto aleatorio. Útil cuando los tiempos no son igualmente espaciados o cuando no hay razón para esperar que la correlación decaiga con la distancia.
+- **AR(1) (autorregresiva de orden 1):** la correlación decae geométricamente con la distancia temporal, mediciones cercanas se parecen más que las lejanas. Apropiada cuando los tiempos de medición están **igualmente espaciados** y hay un proceso de "memoria corta".
+- **UN (sin restricción / unstructured):** cada par de ocasiones tiene su propia correlación $\rho_{jk}$, estimada libremente. Es la más flexible, pero requiere estimar $n(n-1)/2$ parámetros, solo viable con pocas ocasiones ($n \le 5$ aprox.) y tamaños de muestra razonables.
+
+## Cómo elegir en la práctica
+
+1. Si las ocasiones de medición **no son equiespaciadas** o son pocas (≤4) y el tamaño muestral lo permite, **UN** suele ser la opción más informativa, y se puede comparar contra CS/AR1 con un LRT (requiere `method = "ML"`).
+2. Si las ocasiones están equiespaciadas y son muchas, **AR(1)** es un punto de partida razonable y parsimonioso.
+3. **CS** es el caso más simple y, de hecho, equivale a un modelo con solo intercepto aleatorio, útil como referencia ("modelo nulo de correlación").
+4. La estructura de covarianza interactúa con los **efectos aleatorios**: si ya incluimos pendiente aleatoria, parte de la correlación temporal queda capturada allí, y una estructura residual más simple (CS) puede ser suficiente.
+
+<ProcessSteps title="Flujo de análisis" steps={[
+  {
+    title: "Diagnosticar",
+    description: "Revisar los residuos del modelo del Módulo 4: ¿quedan patrones de correlación temporal sin explicar?"
+  },
+  {
+    title: "Proponer",
+    description: "Plantear 2-3 estructuras candidatas (CS, AR1, UN) compatibles con el diseño temporal del estudio."
+  },
+  {
+    title: "Ajustar con ML",
+    description: "Reajustar cada candidata con method = \"ML\" para que los modelos sean comparables por verosimilitud."
+  },
+  {
+    title: "Comparar",
+    description: "Usar AIC/BIC y anova() (LRT para modelos anidados) para elegir la estructura más parsimoniosa."
+  },
+  {
+    title: "Reportar con REML",
+    description: "Reajustar el modelo elegido con REML (por defecto) para el reporte final de efectos fijos y varianzas."
+  }
+]} />
+
+<DataTable caption="Comparación de estructuras de covarianza residual" columns={[
+  "Estructura",
+  "Parámetros de correlación",
+  "Cuándo usarla",
+  "Código en nlme"
+]} rows={[
+  [
+    "CS",
+    "1 (ρ constante)",
+    "Tiempos no equiespaciados o pocas ocasiones; referencia simple",
+    "corCompSymm(form = ~ tiempo | ID)"
+  ],
+  [
+    "AR(1)",
+    "1 (ρ, decae con la distancia)",
+    "Tiempos equiespaciados, muchas ocasiones",
+    "corAR1(form = ~ tiempo | ID)"
+  ],
+  [
+    "UN",
+    "n(n-1)/2",
+    "Pocas ocasiones (≤5), máxima flexibilidad",
+    "corSymm(form = ~ tiempo | ID)"
+  ]
+]} />
+
+<Callout type="info" title="Info: ML para comparar, REML para reportar">
+Al comparar estructuras de covarianza con anova() o AIC, ambos modelos deben ajustarse con method = "ML". Una vez elegida la estructura, reajusta con REML (el valor por defecto) para los resultados que vas a reportar.
+</Callout>
+
+<Callout type="tip" title="Tip: empieza simple">
+Si UN no converge o las estimaciones se ven inestables, no es un fracaso: vuelve a AR(1) o CS. Una estructura más simple que converge bien es preferible a una compleja que no.
+</Callout>
+
+<RCell id="covar-models" title="Ajustar CS, AR(1) y UN sobre SPRUCE1" code={`# Cargamos los paquetes y los datos (mismo dataset del Modulo 4)
+library(nlme)
+library(dplyr)
+
+spruce <- read.csv("https://raw.githubusercontent.com/jcsalazaru/datasets/main/SPRUCE1.csv")
+spruce <- spruce %>%
+  mutate(ID = factor(ID),
+         Group = factor(Group),
+         time_centered = time1 - mean(time1),
+         # corSymm (UN) exige que la covariable de tiempo sea una secuencia
+         # de enteros consecutivos (1, 2, 3, ...) dentro de cada sujeto.
+         time_index = as.integer(factor(time1)))
+
+# Misma parte fija/aleatoria; cambia solo la estructura de correlacion residual.
+# Ajustamos con method = "ML" para poder comparar por verosimilitud.
+mod_cs <- lme(log_growth ~ time_centered * Group,
+              random = ~ 1 | ID,
+              correlation = corCompSymm(form = ~ time_centered | ID),
+              data = spruce, method = "ML")
+
+mod_ar1 <- update(mod_cs, correlation = corAR1(form = ~ time_centered | ID))
+mod_un  <- update(mod_cs, correlation = corSymm(form = ~ time_index | ID))
+
+summary(mod_cs)
+summary(mod_ar1)
+summary(mod_un)`} />
+
+<SASAccordion title="Alternativa en SAS: REPEATED con distintas estructuras TYPE=" code={`/* Mismo modelo, cambiando solo la estructura de covarianza residual.
+   Comparar con: data _null_; set work._aic_bic_; run; o revisar las
+   tablas "Fit Statistics" de cada PROC MIXED. */
+
+/* Compound symmetry */
+PROC MIXED DATA=spruce1 METHOD=ML;
+  CLASS id group;
+  MODEL log_growth = time_centered group time_centered*group / SOLUTION;
+  REPEATED / SUBJECT=id TYPE=CS;
+RUN;
+
+/* Autorregresiva de orden 1 */
+PROC MIXED DATA=spruce1 METHOD=ML;
+  CLASS id group;
+  MODEL log_growth = time_centered group time_centered*group / SOLUTION;
+  REPEATED / SUBJECT=id TYPE=AR(1);
+RUN;
+
+/* Sin restriccion (UN) */
+PROC MIXED DATA=spruce1 METHOD=ML;
+  CLASS id group;
+  MODEL log_growth = time_centered group time_centered*group / SOLUTION;
+  REPEATED / SUBJECT=id TYPE=UN;
+RUN;
+
+/* La tabla "Fit Statistics" (-2 Log Likelihood, AIC, BIC) de cada
+   PROC permite comparar las tres estructuras. */`} />
+
+<RCell id="covar-anova" title="Comparar AIC/BIC y prueba de razón de verosimilitud" code={`# anova() compara los tres modelos anidados (misma parte fija, distinta R)
+anova(mod_cs, mod_ar1, mod_un)
+
+# Tabla resumida solo con los criterios de informacion
+data.frame(
+  modelo = c("CS", "AR1", "UN"),
+  AIC = c(AIC(mod_cs), AIC(mod_ar1), AIC(mod_un)),
+  BIC = c(BIC(mod_cs), BIC(mod_ar1), BIC(mod_un))
+)`} />
+
+<RCell id="covar-heatmap" title="Visualizar la matriz de correlación residual (UN)" code={`library(ggplot2)
+
+# Matriz de correlacion residual implicada por la estructura UN
+cor_un <- corMatrix(mod_un$modelStruct$corStruct)[[1]]
+cor_df <- as.data.frame(as.table(cor_un))
+colnames(cor_df) <- c("Ocasion_i", "Ocasion_j", "Correlacion")
+
+ggplot(cor_df, aes(Ocasion_i, Ocasion_j, fill = Correlacion)) +
+  geom_tile() +
+  geom_text(aes(label = round(Correlacion, 2)), color = "white", size = 3) +
+  scale_fill_gradient(low = "#2c7a7b", high = "#1a365d") +
+  labs(title = "Matriz de correlacion residual estimada (UN)") +
+  theme_minimal()`} />
+
+<Flashcards items={[
+  {
+    front: "¿Qué problema resuelve una estructura de covarianza residual?",
+    back: "Modela la correlación entre mediciones repetidas del mismo sujeto que no quedó capturada por los efectos aleatorios, evitando errores estándar mal calculados."
+  },
+  {
+    front: "¿Cuándo conviene usar AR(1) en lugar de CS?",
+    back: "Cuando las ocasiones de medición están igualmente espaciadas y se espera que la correlación decaiga con la distancia temporal."
+  },
+  {
+    front: "¿Cuál es la desventaja principal de la estructura UN?",
+    back: "Requiere estimar n(n-1)/2 parámetros de correlación, lo que solo es viable con pocas ocasiones y muestras suficientemente grandes."
+  },
+  {
+    front: "¿Con qué método de estimación se deben comparar estructuras de covarianza distintas?",
+    back: "Con ML (no REML), porque REML no permite comparar modelos que difieren en la parte de varianza/covarianza mediante LRT de forma estándar entre estructuras con distinta parametrización."
+  }
+]} />
+
+<Quiz questions={[
+  {
+    question: "¿Qué representa el parámetro ρ en la estructura CS?",
+    options: [
+      "La varianza residual total",
+      "Una correlación constante entre cualquier par de ocasiones del mismo sujeto",
+      "La pendiente promedio en el tiempo",
+      "El número de ocasiones de medición"
+    ],
+    correctIndex: 1,
+    explanation: "CS (Compound Symmetry) asume que todas las observaciones del mismo sujeto están igualmente correlacionadas, sin importar la distancia temporal entre ellas."
+  },
+  {
+    question: "Un estudio mide a cada paciente en 8 ocasiones igualmente espaciadas. ¿Qué estructura sería un buen punto de partida parsimonioso?",
+    options: [
+      "UN",
+      "AR(1)",
+      "Ninguna; siempre usar CS",
+      "Una estructura distinta para cada paciente"
+    ],
+    correctIndex: 1,
+    explanation: "Con muchas ocasiones equiespaciadas, AR(1) captura el decaimiento de la correlación con la distancia usando un solo parámetro, evitando los n(n-1)/2 parámetros de UN."
+  },
+  {
+    question: "Para comparar mod_cs, mod_ar1 y mod_un con anova() de forma válida, ¿qué deben tener en común?",
+    options: [
+      "Deben tener distintos efectos fijos",
+      "Deben ajustarse con method = \"ML\" y la misma parte fija",
+      "Deben tener distintos datasets",
+      "No es necesario que compartan nada"
+    ],
+    correctIndex: 1,
+    explanation: "Para comparar verosimilitudes con LRT/AIC necesitamos modelos anidados ajustados con ML y la misma especificación de efectos fijos; solo cambia la estructura de R."
+  }
+]} />

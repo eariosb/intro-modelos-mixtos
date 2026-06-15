@@ -5,7 +5,7 @@ import CodeMirror from '@uiw/react-codemirror';
 import { StreamLanguage } from '@codemirror/language';
 import { sas as sasMode } from '@codemirror/legacy-modes/mode/sas';
 import { oneDark } from '@codemirror/theme-one-dark';
-import type { SasExample } from '@/content/types';
+import type { SASAccordionProps } from '@/types/course';
 
 const sasLanguage = StreamLanguage.define(sasMode);
 
@@ -14,7 +14,7 @@ const sasLanguage = StreamLanguage.define(sasMode);
  * with a dark theme to visually distinguish it from the editable,
  * runnable R cells.
  */
-export function SASAccordion({ example }: { example: SasExample }) {
+export function SASAccordion({ title, code }: SASAccordionProps) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
 
@@ -29,7 +29,7 @@ export function SASAccordion({ example }: { example: SasExample }) {
       >
         <span className="flex items-center gap-2">
           <span aria-hidden className="inline-block rounded bg-ink-700 px-1.5 py-0.5 text-[10px] font-bold text-white">SAS</span>
-          Alternativa en SAS — {example.title}
+          Alternativa en SAS — {title}
         </span>
         <span aria-hidden className={`transition-transform ${open ? 'rotate-180' : ''}`}>▾</span>
       </button>
@@ -40,7 +40,7 @@ export function SASAccordion({ example }: { example: SasExample }) {
             Este código es ilustrativo y no se ejecuta en el navegador. Requiere una sesión de SAS / SAS Studio.
           </p>
           <CodeMirror
-            value={example.code}
+            value={code}
             theme={oneDark}
             height="auto"
             editable={false}

@@ -1,0 +1,263 @@
+---
+title: "Progesterona: splines, diagnóstico y comunicación clínica"
+slug: "splines-y-caso-integrador"
+subtitle: "Un caso clínico completo que integra especificación, splines, diagnóstico DHARMa, selección y comunicación de resultados."
+objective:
+  - "Reconocer cuándo una relación tiempo-respuesta no lineal requiere splines."
+  - "Ajustar un LMM con splines (bs()) y efectos aleatorios."
+  - "Aplicar el flujo completo del curso: especificar, ajustar, comparar, diagnosticar."
+  - "Generar predicciones marginales con bandas de incertidumbre."
+  - "Comunicar resultados clínicos de forma clara, integrando hallazgos estadísticos y fisiológicos."
+order: 9
+datasets:
+  - "progesterone (concentraciones hormonales por ciclo menstrual)"
+---
+
+## El caso: una curva que no es una línea recta
+
+A lo largo de este curso hemos construido, pieza por pieza, las herramientas para analizar datos longitudinales: efectos aleatorios (Módulo 4), estructuras de covarianza (Módulo 5), diagnóstico (Módulo 6), familias no gaussianas (Módulo 7) y selección de modelos (Módulo 8). Este módulo integra todo en un **caso clínico completo**.
+
+Los niveles de progesterona durante el ciclo menstrual **no siguen una tendencia lineal**: suben bruscamente tras la ovulación y caen antes de la menstruación. Un modelo `logp ~ time + (time | id)` asumiría una relación lineal con el tiempo, claramente inadecuada aquí. Necesitamos una función **flexible pero suave**.
+
+## Splines: curvas suaves dentro de un modelo lineal
+
+Un **spline** representa una función no lineal de `time` como una combinación lineal de funciones base $B_1(t), \dots, B_k(t)$:
+
+$$
+f(\text{time}) = \sum_{j=1}^{k} \gamma_j B_j(\text{time})
+$$
+
+Lo notable es que, una vez definidas las funciones base (`bs(time, degree = 3, knots = ...)`), el modelo sigue siendo **lineal en los parámetros** $\gamma_j$, por lo tanto cabe perfectamente dentro de `lmer()`. Los **nodos** (`knots`) controlan dónde la curva tiene mayor flexibilidad; para progesterona, ubicarlos cerca de la ovulación (tiempo 0) permite capturar el pico y la caída posterior.
+
+## El flujo integrador
+
+1. **Especificar:** `logp ~ bs(time, degree=3, knots=c(-6,0,6)) * group + (time | id)`, spline cúbico interactuando con grupo, efectos aleatorios por mujer.
+2. **Comparar (Módulo 8):** ¿el spline mejora el AIC/BIC frente a un término lineal o cuadrático en `time`? Reajustar con ML para comparar.
+3. **Diagnosticar (Módulo 6):** `simulateResiduals()` + `plot(sim)`, ¿el spline elimina el patrón curvo que veíamos con el término lineal?
+4. **Predecir y comunicar:** generar una curva predicha por grupo con bandas de confianza, e interpretarla en términos fisiológicos (momento e intensidad del pico, diferencias entre grupos).
+
+## De los coeficientes a la curva: por qué predecimos
+
+Los coeficientes individuales de un spline ($\gamma_1, \gamma_2, \dots$) **no tienen interpretación clínica directa**, son artefactos de la base matemática elegida. Lo que sí se comunica es la **curva predicha completa**: "el pico de progesterona ocurre alrededor del día X, con una concentración Y, y el grupo A alcanza valores significativamente más altos que el grupo B en la fase lútea". Las bandas de confianza (a partir de la varianza de predicción o de `bootMer()`) comunican la incertidumbre de esa curva.
+
+## Cerrando el círculo
+
+Este caso resume la filosofía del curso: el objetivo no es ajustar "el modelo correcto" en abstracto, sino un modelo que (a) represente razonablemente el fenómeno biológico, (b) pase los chequeos de diagnóstico, (c) sea defendible frente a alternativas razonables (selección de modelos), y (d) cuyos resultados puedan **comunicarse con claridad** a quienes toman decisiones clínicas.
+
+<ProcessSteps title="Flujo de análisis" steps={[
+  {
+    title: "1. Explorar",
+    description: "Graficar las trayectorias individuales de logp vs. time: confirmar la forma no lineal (pico posovulatorio), Módulo 2."
+  },
+  {
+    title: "2. Especificar con splines",
+    description: "bs(time, degree=3, knots=...) * group + (time | id): flexibilidad en el tiempo, efectos aleatorios por mujer, Módulo 4."
+  },
+  {
+    title: "3. Comparar alternativas",
+    description: "AIC/BIC del modelo con spline vs. lineal/cuadrático, todos con ML, Módulo 8."
+  },
+  {
+    title: "4. Diagnosticar",
+    description: "simulateResiduals() + plot(sim): verificar que el spline corrige el patrón curvo en los residuos, Módulo 6."
+  },
+  {
+    title: "5. Predecir y comunicar",
+    description: "Curvas predichas por grupo con bandas de incertidumbre, interpretadas en términos fisiológicos y clínicos."
+  }
+]} />
+
+<DataTable caption="Mapa del curso: qué módulo resuelve qué pregunta" columns={[
+  "Pregunta",
+  "Módulo",
+  "Herramienta"
+]} rows={[
+  [
+    "¿Cómo modelar la heterogeneidad entre sujetos?",
+    "Módulo 4",
+    "Efectos aleatorios (intercepto/pendiente)"
+  ],
+  [
+    "¿Cómo modelar la correlación intra-sujeto residual?",
+    "Módulo 5",
+    "Estructuras CS / AR(1) / UN"
+  ],
+  [
+    "¿El modelo cumple los supuestos?",
+    "Módulo 6",
+    "Residuos simulados (DHARMa)"
+  ],
+  [
+    "¿Qué hacer si la respuesta no es continua?",
+    "Módulo 7",
+    "GLMM (binomial, Poisson)"
+  ],
+  [
+    "¿Qué tan complejo debe ser el modelo?",
+    "Módulo 8",
+    "AIC/BIC/LRT"
+  ],
+  [
+    "¿Cómo modelar relaciones no lineales en el tiempo?",
+    "Módulo 9",
+    "Splines (bs())"
+  ]
+]} />
+
+<Callout type="tip" title="Tip: los nodos (knots) son decisiones de diseño">
+Ubicar los nodos cerca de regiones donde esperas cambios de curvatura (p. ej. el día de la ovulación) suele dar mejores resultados que repartirlos uniformemente. Justifica tu elección con conocimiento del fenómeno, no solo con el ajuste.
+</Callout>
+
+<Callout type="success" title="Listo: has completado el recorrido del curso">
+Especificar, ajustar, comparar, diagnosticar, predecir y comunicar, este ciclo se repite (a veces varias veces) en cualquier análisis real de modelos mixtos. Vuelve a los módulos anteriores cuando lo necesites: son tu caja de herramientas.
+</Callout>
+
+<RCell id="progesterone-spline" title="Ajustar un LMM con spline cúbico en el tiempo" code={`# Cargamos paquetes y datos
+library(lme4)
+library(splines)
+library(dplyr)
+
+prog <- read.csv("https://raw.githubusercontent.com/jcsalazaru/datasets/main/progesterone.csv")
+prog <- prog %>%
+  mutate(logp  = as.numeric(gsub(",", ".", logp)),
+         id    = factor(id),
+         group = factor(group))
+
+# Spline cubico con nodos cerca de la ovulacion (time = 0)
+# interactuando con group; efectos aleatorios por mujer
+mod_spline <- lmer(
+  logp ~ bs(time, degree = 3, knots = c(-6, 0, 6)) * group + (time | id),
+  data = prog
+)
+summary(mod_spline)`} />
+
+<SASAccordion title="Alternativa en SAS: PROC MIXED con efectos spline (EFFECT)" code={`/* SAS 9.4+ permite construir bases de spline directamente
+   con la sentencia EFFECT dentro de PROC MIXED */
+PROC MIXED DATA=progesterone1 METHOD=ML;
+  CLASS id group;
+  EFFECT spl = SPLINE(time / KNOTMETHOD=LIST(-6 0 6) DEGREE=3);
+  MODEL logp = spl group spl*group / SOLUTION;
+  RANDOM INTERCEPT time / SUBJECT=id TYPE=UN;
+RUN;
+
+/* Comparar el -2LL/AIC/BIC de este modelo contra un modelo con
+   "time" lineal (sin EFFECT SPLINE) para justificar la complejidad
+   adicional, igual que con anova()/AIC() en R. */`} />
+
+<RCell id="progesterone-comparar-diagnosticar" title="Comparar contra un término lineal y diagnosticar con DHARMa" code={`library(lme4)
+library(splines)
+library(dplyr)
+library(DHARMa)
+
+# Si esta celda se ejecuta sin haber corrido antes "Ajustar un LMM con
+# spline cúbico en el tiempo", recreamos aqui los objetos que necesita.
+if (!exists("prog")) {
+  prog <- read.csv("https://raw.githubusercontent.com/jcsalazaru/datasets/main/progesterone.csv")
+  prog <- prog %>%
+    mutate(logp  = as.numeric(gsub(",", ".", logp)),
+           id    = factor(id),
+           group = factor(group))
+}
+if (!exists("mod_spline")) {
+  mod_spline <- lmer(
+    logp ~ bs(time, degree = 3, knots = c(-6, 0, 6)) * group + (time | id),
+    data = prog
+  )
+}
+
+# Modelo alternativo: tiempo lineal (sin spline), mismo termino aleatorio
+mod_lineal <- lmer(logp ~ time * group + (time | id), data = prog, REML = FALSE)
+mod_spline_ml <- lmer(
+  logp ~ bs(time, degree = 3, knots = c(-6, 0, 6)) * group + (time | id),
+  data = prog, REML = FALSE
+)
+
+# Comparacion de criterios (Modulo 8)
+data.frame(
+  modelo = c("Lineal", "Spline cubico"),
+  AIC = c(AIC(mod_lineal), AIC(mod_spline_ml)),
+  BIC = c(BIC(mod_lineal), BIC(mod_spline_ml))
+)
+
+# Diagnostico de residuos del modelo con spline (Modulo 6)
+sim <- simulateResiduals(mod_spline, n = 500)
+plot(sim)`} />
+
+<RCell id="progesterone-prediccion" title="Curva predicha por grupo con banda de incertidumbre" code={`library(ggplot2)
+
+# Rejilla de tiempo para predecir, por grupo
+grid <- expand.grid(
+  time  = seq(min(prog$time), max(prog$time), length.out = 80),
+  group = levels(prog$group)
+)
+
+# Prediccion poblacional (sin efectos aleatorios, re.form = NA)
+grid$fit <- predict(mod_spline, newdata = grid, re.form = NA)
+
+# Banda aproximada usando el error estandar residual del modelo
+# (una aproximacion simple; para bandas mas precisas usar bootMer())
+se_resid <- sigma(mod_spline)
+grid$lwr <- grid$fit - 1.96 * se_resid
+grid$upr <- grid$fit + 1.96 * se_resid
+
+ggplot(grid, aes(time, fit, color = group, fill = group)) +
+  geom_ribbon(aes(ymin = lwr, ymax = upr), alpha = 0.15, color = NA) +
+  geom_line(linewidth = 1.2) +
+  labs(title = "Curva de progesterona predicha por grupo",
+       x = "Tiempo (relativo a la ovulacion)", y = "log(progesterona)") +
+  theme_minimal()`} />
+
+<Flashcards items={[
+  {
+    front: "¿Por qué un spline sigue siendo un \"modelo lineal\" aunque represente una curva?",
+    back: "Porque es lineal en los parámetros γⱼ: la curva es una combinación lineal de funciones base Bⱼ(time), que se calculan de antemano y se incluyen como predictores comunes."
+  },
+  {
+    front: "¿Qué controlan los \"knots\" (nodos) de un spline?",
+    back: "Dónde la curva tiene mayor flexibilidad para cambiar de forma; suelen ubicarse donde se espera un cambio de curvatura relevante para el fenómeno."
+  },
+  {
+    front: "¿Por qué los coeficientes individuales de un spline no se interpretan uno por uno?",
+    back: "Porque son artefactos de la base matemática elegida; lo interpretable es la curva predicha completa (forma, picos, diferencias entre grupos)."
+  },
+  {
+    front: "Resume en una frase el flujo integrador de este módulo.",
+    back: "Explorar → especificar (con splines si es necesario) → comparar alternativas (AIC/BIC) → diagnosticar (DHARMa) → predecir y comunicar resultados clínicamente relevantes."
+  }
+]} />
+
+<Quiz questions={[
+  {
+    question: "Las trayectorias de progesterone muestran un pico marcado seguido de una caída. ¿Por qué un término lineal en time sería insuficiente?",
+    options: [
+      "Porque lme4 no admite variables continuas",
+      "Porque un término lineal solo puede representar una tendencia monótona (siempre sube o siempre baja), no un pico",
+      "Porque time debe ser siempre categórico",
+      "Porque los efectos aleatorios eliminan la necesidad de modelar el tiempo"
+    ],
+    correctIndex: 1,
+    explanation: "Un coeficiente lineal en time impone una relación monótona; para representar un pico y una caída se necesita una función no lineal, como un spline."
+  },
+  {
+    question: "¿Qué evidencia, en conjunto, respaldaría preferir el modelo con spline sobre el lineal?",
+    options: [
+      "Solo que el spline tenga más parámetros",
+      "Menor AIC/BIC del spline y residuos DHARMa sin el patrón curvo que sí aparecía con el modelo lineal",
+      "Que el spline sea más difícil de programar",
+      "Que el modelo lineal converja más rápido"
+    ],
+    correctIndex: 1,
+    explanation: "La decisión integra selección de modelos (AIC/BIC, Módulo 8) y diagnóstico (Módulo 6): el spline se justifica si mejora el ajuste/criterios y corrige el patrón en los residuos."
+  },
+  {
+    question: "Al comunicar los resultados del modelo con spline a un equipo clínico, ¿qué es lo más apropiado?",
+    options: [
+      "Presentar la tabla completa de coeficientes γⱼ del spline y pedirles que los interpreten",
+      "Mostrar la curva predicha por grupo con bandas de incertidumbre y describir el pico, su momento y las diferencias entre grupos en términos fisiológicos",
+      "Solo reportar el AIC del modelo",
+      "No comunicar nada hasta tener un modelo \"perfecto\""
+    ],
+    correctIndex: 1,
+    explanation: "Los coeficientes del spline no son interpretables individualmente; la comunicación efectiva se basa en la curva predicha y su significado clínico/fisiológico, junto con la incertidumbre asociada."
+  }
+]} />

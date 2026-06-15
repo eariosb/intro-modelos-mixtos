@@ -14,7 +14,7 @@
     "next": "14.2.5",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "@r-wasm/webr": "^0.2.0",
+    "webr": "^0.6.0",
     "@uiw/react-codemirror": "^4.23.0",
     "@codemirror/lang-markdown": "^6.2.5",
     "@codemirror/legacy-modes": "^6.4.0",
@@ -23,7 +23,9 @@
     "remark-math": "^6.0.0",
     "rehype-katex": "^7.0.1",
     "katex": "^0.16.11",
-    "clsx": "^2.1.1"
+    "clsx": "^2.1.1",
+    "next-mdx-remote": "^5.0.0",
+    "gray-matter": "^4.0.3"
   },
   "devDependencies": {
     "typescript": "^5.5.4",

@@ -16,7 +16,7 @@ const nextConfig = {
   },
   webpack: (config) => {
     config.resolve.fallback = { ...config.resolve.fallback, fs: false, path: false };
-    // El build de @r-wasm/webr (webr.cjs) usa `require()` con una ruta
+    // El build de webr (webr.cjs) usa `require()` con una ruta
     // dinámica para localizar sus workers/WASM en tiempo de ejecución.
     // Webpack no puede resolver esa expresión estáticamente y la marca
     // como "Critical dependency". Es inofensivo siempre que WebR cargue

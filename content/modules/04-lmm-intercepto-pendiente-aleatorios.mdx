@@ -1,0 +1,236 @@
+---
+title: "LMM sobre trayectorias de crecimiento en SPRUCE1"
+slug: "lmm-intercepto-pendiente-aleatorios"
+subtitle: "Interpretación de interceptos y pendientes aleatorias en trayectorias clínicas."
+objective:
+  - "Escribir formalmente un LMM con intercepto y pendiente aleatorios."
+  - "Ajustar el modelo con lme4::lmer() y nlme::lme() sobre SPRUCE1."
+  - "Interpretar efectos fijos, varianzas de componentes aleatorios y su correlación."
+  - "Distinguir REML de ML y saber cuándo usar cada uno."
+  - "Visualizar trayectorias individuales junto con la curva poblacional ajustada."
+order: 4
+datasets:
+  - "SPRUCE1 (crecimiento de abetos Sitka, Control vs Ozone)"
+---
+
+## De la exploración al modelo
+
+En el Módulo 2 vimos los perfiles individuales de `log_growth` para los árboles de **SPRUCE1**: algunas trayectorias suben más rápido que otras, y el punto de partida ("intercepto") tampoco es el mismo para todos. Esa heterogeneidad **no es ruido que debamos ignorar**, es información que el modelo lineal mixto incorpora explícitamente.
+
+Pensemos en una analogía clínica: si midiéramos la presión arterial de 30 pacientes una vez por mes durante un año, esperaríamos que (a) algunos pacientes partan con presiones basales distintas, y (b) algunos respondan más rápido al tratamiento que otros. Un LMM modela ambas fuentes de variación a la vez: la **tendencia promedio** (efectos fijos) y **cuánto se desvía cada individuo** de esa tendencia (efectos aleatorios).
+
+## Especificación formal
+
+Para el árbol (o paciente) $i$ en el tiempo $t$, el modelo con intercepto y pendiente aleatorios se escribe como:
+
+$$
+y_{it} = \underbrace{\beta_0 + \beta_1\, t + \beta_2\, \text{Group}_i + \beta_3\, (t \times \text{Group}_i)}_{\text{efectos fijos}} + \underbrace{b_{0i} + b_{1i}\, t}_{\text{efectos aleatorios}} + \varepsilon_{it}
+$$
+
+$$
+\begin{pmatrix} b_{0i} \\ b_{1i} \end{pmatrix} \sim N\!\left(\begin{pmatrix}0\\0\end{pmatrix}, \begin{pmatrix}\tau_0^2 & \tau_{01} \\ \tau_{01} & \tau_1^2\end{pmatrix}\right), \qquad \varepsilon_{it} \sim N(0, \sigma^2)
+$$
+
+- $\beta_0,\dots,\beta_3$: la curva **promedio poblacional** por grupo, lo que típicamente reportamos en un artículo.
+- $b_{0i}, b_{1i}$: cuánto se aparta **el árbol/paciente $i$** del promedio de su grupo, en intercepto y en pendiente.
+- $\tau_0^2, \tau_1^2$: varianza entre sujetos del intercepto y de la pendiente, **cuánta heterogeneidad hay**.
+- $\tau_{01}$: covarianza entre ambos, por ejemplo, ¿los árboles que parten más altos crecen también más rápido (covarianza positiva) o tienden a "emparejarse" con el tiempo (covarianza negativa)?
+- $\sigma^2$: varianza residual intra-sujeto, lo que el modelo no explica.
+
+## REML vs ML: ¿cuál usar?
+
+`lmer()` y `lme()` ajustan por **REML** (*Restricted Maximum Likelihood*) por defecto, que corrige el sesgo en la estimación de las varianzas, recomendado para **reportar el modelo final**. Sin embargo, REML no permite comparar modelos con **distintos efectos fijos** mediante pruebas de razón de verosimilitud; para eso (Módulo 8) se usa `REML = FALSE` (equivalente a ML).
+
+## Notación en R: lme4 vs nlme
+
+La fórmula `log_growth ~ time_centered * Group + (time_centered | ID)` en `lme4` es equivalente a separar la parte fija (`fixed=`) de la aleatoria (`random=`) en `nlme::lme()`. Ambas estiman el mismo modelo estadístico; difieren en la sintaxis y en algunas utilidades de diagnóstico (`nlme` facilita estructuras de covarianza residual, tema del Módulo 5).
+
+<ProcessSteps title="Flujo de análisis" steps={[
+  {
+    title: "Explorar",
+    description: "Perfiles individuales y promedio (Módulo 2) para decidir qué efectos aleatorios tienen sentido."
+  },
+  {
+    title: "Especificar",
+    description: "Escribir la fórmula: efectos fijos de interés (tiempo, grupo, interacción) + efectos aleatorios por sujeto."
+  },
+  {
+    title: "Ajustar",
+    description: "lmer() o lme() con REML para obtener estimaciones insesgadas de las varianzas."
+  },
+  {
+    title: "Interpretar",
+    description: "Leer primero los efectos fijos (tendencia poblacional), luego las varianzas/correlación de los aleatorios."
+  },
+  {
+    title: "Validar",
+    description: "Diagnosticar residuos (Módulo 6) antes de confiar en las conclusiones."
+  }
+]} />
+
+<DataTable caption="Equivalencia de sintaxis entre lme4 y nlme para el mismo LMM" columns={[
+  "Elemento",
+  "lme4::lmer()",
+  "nlme::lme()"
+]} rows={[
+  [
+    "Efectos fijos",
+    "log_growth ~ time_centered * Group",
+    "fixed = log_growth ~ time_centered * Group"
+  ],
+  [
+    "Efectos aleatorios",
+    "(time_centered | ID)",
+    "random = ~ time_centered | ID"
+  ],
+  [
+    "Método de estimación",
+    "REML = TRUE (por defecto)",
+    "method = \"REML\" (por defecto)"
+  ],
+  [
+    "Varianza residual",
+    "sigma(modelo)^2",
+    "mod$sigma^2"
+  ],
+  [
+    "Matriz D (aleatorios)",
+    "VarCorr(modelo)",
+    "getVarCov(modelo)"
+  ]
+]} />
+
+<Callout type="tip" title="Tip: centrar el tiempo">
+Centrar la variable de tiempo (time_centered = time1 - mean(time1)) hace que el intercepto se interprete como el valor esperado en el punto medio del estudio, y suele mejorar la convergencia del optimizador.
+</Callout>
+
+<Callout type="warning" title="Atención: advertencias de convergencia">
+Si lmer() reporta "Model failed to converge", no descartes el resultado de inmediato: prueba reescalar variables, simplificar la estructura aleatoria (quitar la pendiente aleatoria) o cambiar el optimizador con lmerControl(optimizer = "bobyqa").
+</Callout>
+
+<RCell id="spruce-load" title="Cargar SPRUCE1 y centrar el tiempo" code={`# Cargamos los paquetes necesarios (ya estan precargados en el entorno)
+library(lme4)
+library(ggplot2)
+library(dplyr)
+
+# Mismo dataset del Modulo 2: crecimiento de abetos Sitka
+spruce <- read.csv("https://raw.githubusercontent.com/jcsalazaru/datasets/main/SPRUCE1.csv")
+
+# Centramos el tiempo: el intercepto representara el punto medio del estudio
+spruce <- spruce %>%
+  mutate(ID = factor(ID),
+         Group = factor(Group),
+         time_centered = time1 - mean(time1))
+
+str(spruce)
+head(spruce, 8)`} />
+
+<SASAccordion title="Alternativa en SAS: PROC MIXED con intercepto y pendiente aleatorios" code={`/* Modelo equivalente: log_growth ~ time_centered * Group + (time_centered | ID) */
+PROC MIXED DATA=spruce1 METHOD=REML COVTEST;
+  CLASS id group;
+  /* Efectos fijos: tiempo, grupo e interaccion */
+  MODEL log_growth = time_centered group time_centered*group / SOLUTION DDFM=KENWARDROGER;
+  /* Efectos aleatorios: intercepto y pendiente por arbol, matriz D sin restricciones (UN) */
+  RANDOM INTERCEPT time_centered / SUBJECT=id TYPE=UN G GCORR;
+RUN;
+
+/* SOLUTION imprime los coeficientes de efectos fijos (beta0..beta3).
+   G y GCORR imprimen la matriz D estimada y su correlacion (tau01). */`} />
+
+<RCell id="spruce-lmer" title="Ajustar el LMM con lmer() (intercepto y pendiente aleatorios)" code={`library(lme4)
+
+# Efectos fijos: tiempo, grupo y su interaccion
+# Efectos aleatorios: intercepto y pendiente propios por arbol (ID)
+mod_lmer <- lmer(
+  log_growth ~ time_centered * Group + (time_centered | ID),
+  data = spruce
+)
+
+# 1) Efectos fijos: tendencia promedio por grupo
+# 2) Random effects: varianzas tau0^2, tau1^2 y su correlacion
+# 3) Residual: sigma^2 (lo no explicado por el modelo)
+summary(mod_lmer)
+
+# Componentes de varianza por separado
+VarCorr(mod_lmer)`} />
+
+<RCell id="spruce-nlme-plot" title="Mismo modelo con nlme y curvas poblacionales por grupo" code={`library(nlme)
+library(ggplot2)
+
+# nlme separa la formula fija (fixed) de la aleatoria (random)
+mod_lme <- lme(
+  log_growth ~ time_centered * Group,
+  random = ~ time_centered | ID,
+  data = spruce
+)
+
+summary(mod_lme)
+
+# Prediccion de la curva poblacional (sin efectos aleatorios, re.form = NA)
+grid <- expand.grid(
+  time_centered = seq(min(spruce$time_centered), max(spruce$time_centered), length.out = 60),
+  Group = levels(spruce$Group)
+)
+grid$fit <- predict(mod_lmer, newdata = grid, re.form = NA)
+
+ggplot() +
+  geom_line(data = spruce, aes(time_centered, log_growth, group = ID, color = Group), alpha = 0.25) +
+  geom_line(data = grid, aes(time_centered, fit, color = Group), linewidth = 1.4) +
+  labs(title = "Trayectorias individuales (tenues) y curva poblacional (gruesa)",
+       x = "Tiempo centrado", y = "log(crecimiento)") +
+  theme_minimal()`} />
+
+<Flashcards items={[
+  {
+    front: "¿Qué representan los efectos fijos en un LMM?",
+    back: "La tendencia o relación promedio en la población (lo que normalmente se reporta e interpreta)."
+  },
+  {
+    front: "¿Qué representan los efectos aleatorios?",
+    back: "Cuánto se desvía cada sujeto/unidad individual respecto al promedio poblacional, modelado como una distribución de varianzas."
+  },
+  {
+    front: "¿Qué es τ₀₁ (la covarianza entre intercepto y pendiente aleatorios)?",
+    back: "Indica si sujetos que parten más altos (o bajos) tienden también a crecer más rápido o más lento."
+  },
+  {
+    front: "¿Cuándo usar ML en lugar de REML?",
+    back: "Cuando se van a comparar modelos con distintos efectos fijos mediante pruebas de razón de verosimilitud (LRT)."
+  }
+]} />
+
+<Quiz questions={[
+  {
+    question: "En el modelo log_growth ~ time_centered * Group + (time_centered | ID), ¿qué efecto es aleatorio?",
+    options: [
+      "El efecto de Group sobre log_growth",
+      "El intercepto y la pendiente de time_centered, específicos de cada ID",
+      "La interacción time_centered:Group",
+      "Ninguno; todo el modelo es de efectos fijos"
+    ],
+    correctIndex: 1,
+    explanation: "Lo que está dentro del paréntesis, a la izquierda de \"|\", son los términos con efecto aleatorio por nivel de ID: intercepto (implícito) y time_centered."
+  },
+  {
+    question: "¿Por qué centramos time1 antes de ajustar el modelo?",
+    options: [
+      "Es obligatorio para que lmer() funcione",
+      "Cambia el significado del efecto del grupo",
+      "Mejora la interpretación del intercepto y la estabilidad numérica del ajuste",
+      "Elimina la necesidad de efectos aleatorios"
+    ],
+    correctIndex: 2,
+    explanation: "Centrar el tiempo hace que el intercepto corresponda al punto medio del estudio (más interpretable) y suele facilitar la convergencia."
+  },
+  {
+    question: "¿Qué deberíamos usar para el modelo final que vamos a reportar?",
+    options: [
+      "ML",
+      "REML",
+      "Mínimos cuadrados ordinarios",
+      "No importa, dan lo mismo"
+    ],
+    correctIndex: 1,
+    explanation: "REML corrige el sesgo en la estimación de los componentes de varianza y es el estándar para el modelo final que se reporta."
+  }
+]} />

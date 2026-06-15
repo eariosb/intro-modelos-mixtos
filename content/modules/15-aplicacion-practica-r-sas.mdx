@@ -1,0 +1,428 @@
+---
+title: "Casos integradores: implementación en R y SAS"
+slug: "aplicacion-practica-r-sas"
+subtitle: "Implementación lado a lado en R y SAS de las recomendaciones del Módulo 14, con dos casos clínicos integradores y tablas de equivalencias."
+objective:
+  - "Traducir las recomendaciones del Módulo 14 a sintaxis ejecutable en R y SAS, lado a lado."
+  - "Resolver dos casos clínicos integradores de principio a fin: exploración, modelado, diagnóstico e interpretación."
+  - "Comparar la salida de R y SAS para los mismos modelos e interpretar diferencias de nomenclatura."
+  - "Aplicar buenas prácticas de programación reproducible en R (lme4, nlme, ggplot2, DHARMa) y en SAS (ODS, opciones de estimación)."
+order: 15
+datasets:
+  - "Presión arterial en ensayo clínico (simulado)"
+  - "Infecciones posoperatorias multicéntricas (simulado)"
+---
+
+Este módulo retoma las recomendaciones metodológicas del **Módulo 14** y las
+aplica de punta a punta sobre dos casos clínicos, mostrando en cada paso el
+código en R (ejecutable, celdas WebR) junto con el código SAS equivalente
+("Código SAS equivalente"). El objetivo es que, dado un escenario, sepas qué
+opciones usar en cada lenguaje y cómo leer la salida correspondiente.
+
+## Caso 1: presión arterial en un ensayo con medidas repetidas
+
+Un ensayo clínico aleatorizado mide la **presión arterial sistólica (PAS)** de
+cada paciente en 5 visitas (basal + 4 seguimientos), comparando un nuevo
+fármaco contra placebo. La pregunta es si el fármaco reduce la PAS con el
+tiempo más que el placebo, y cuál es la estructura de correlación intra-sujeto
+más adecuada.
+
+Siguiendo el Módulo 14: (1) explorar con spaghetti plot y perfil medio; (2)
+ajustar un LMM con intercepto y pendiente aleatorios (o, alternativamente,
+`gls` con una estructura de correlación residual tipo AR(1)); (3) comparar
+estructuras de covarianza por AIC/BIC; (4) diagnosticar con DHARMa.
+
+## Caso 2: infecciones posoperatorias en un estudio multicéntrico
+
+Un estudio observacional multicéntrico (10 centros) registra si cada paciente
+desarrolló o no una **infección posoperatoria** (sí/no) tras dos tipos de
+intervención. Interesa tanto el efecto **específico de cada centro**
+(¿cuánto cambia el riesgo dentro de un centro dado?) como el efecto
+**poblacional promedio** (¿cuál es el efecto medio del tipo de intervención en
+la población de centros?).
+
+Siguiendo el Módulo 14: (1) explorar proporciones de infección por centro; (2)
+ajustar un **GLMM** (`glmer`, familia binomial, intercepto aleatorio por
+centro) para el efecto condicional, y un **GEE** (`geeglm`, correlación
+exchangeable) para el efecto marginal; (3) comparar e interpretar los odds
+ratio condicional vs. marginal; (4) diagnosticar con DHARMa.
+
+## Comparación directa de salidas R vs. SAS
+
+Aunque la nomenclatura difiere, los resultados deben ser numéricamente
+equivalentes (o muy cercanos, según el algoritmo de estimación). La tabla al
+final de esta lección resume las correspondencias más comunes entre la salida
+de `summary()`/`anova()` en R y las tablas "Solution for Fixed Effects" /
+"Covariance Parameter Estimates" / "Fit Statistics" de `PROC MIXED` /
+`PROC GLIMMIX`.
+
+## Buenas prácticas de programación
+
+**En R:** mantener un script reproducible con `set.seed()` explícito, cargar
+paquetes al inicio (`library(lme4)`, `library(nlme)`, `library(ggplot2)`,
+`library(DHARMa)`), separar exploración / modelado / diagnóstico en secciones
+claramente comentadas, y usar `broom.mixed::tidy()` o `summary()` para extraer
+resultados de forma consistente.
+
+**En SAS:** usar `ods graphics on` y `ods output` para capturar tablas y
+gráficos de forma reproducible, documentar las opciones de estimación
+(`method=reml` vs `method=ml`, `ddfm=` para grados de libertad), y preferir
+`PROC GLIMMIX` sobre `PROC MIXED` cuando el desenlace no es continuo (PROC
+MIXED asume normalidad de la respuesta condicional).
+
+<DataTable caption="Equivalencias de salida: R vs. SAS" columns={[
+  "Cantidad",
+  "R (lme4 / nlme / geepack)",
+  "SAS"
+]} rows={[
+  [
+    "Estimación de efecto fijo",
+    "summary(modelo)$coefficients (columna Estimate)",
+    "Tabla \"Solution for Fixed Effects\" (columna Estimate)"
+  ],
+  [
+    "Error estándar",
+    "columna Std. Error",
+    "columna Standard Error"
+  ],
+  [
+    "Varianza de efecto aleatorio",
+    "VarCorr(modelo)",
+    "Tabla \"Covariance Parameter Estimates\""
+  ],
+  [
+    "AIC / BIC",
+    "AIC(modelo) / BIC(modelo)",
+    "Tabla \"Fit Statistics\" (AIC, BIC)"
+  ],
+  [
+    "OR condicional (GLMM)",
+    "exp(fixef(modelo))",
+    "\"Odds Ratio Estimates\" (PROC GLIMMIX)"
+  ],
+  [
+    "OR marginal (GEE)",
+    "exp(coef(modelo_gee))",
+    "Estimación exponenciada en PROC GEE"
+  ],
+  [
+    "Correlación de trabajo (GEE)",
+    "summary(modelo_gee)$corr",
+    "\"Working Correlation Matrix\" (PROC GEE)"
+  ]
+]} />
+
+<RCell id="pa-exploracion" title="Caso 1, Exploración: PAS por visita y grupo" code={`library(ggplot2)
+library(dplyr)
+
+set.seed(321)
+n_pac <- 40
+n_vis <- 5
+pa <- data.frame(
+  id = rep(1:n_pac, each = n_vis),
+  visita = rep(0:(n_vis - 1), n_pac),
+  grupo = rep(rep(c("Placebo", "Farmaco"), each = n_pac / 2), each = n_vis)
+)
+b0 <- rep(rnorm(n_pac, 0, 6), each = n_vis)
+efecto <- ifelse(pa$grupo == "Farmaco", -2.5, 0)
+pa$pas <- 140 + b0 + 1 * pa$visita + efecto * pa$visita +
+  rnorm(nrow(pa), 0, 3)
+
+ggplot(pa, aes(visita, pas, group = id, color = grupo)) +
+  geom_line(alpha = 0.25) +
+  stat_summary(aes(group = grupo), fun = mean, geom = "line", linewidth = 1.4) +
+  theme_minimal() +
+  labs(title = "PAS por visita: trayectorias individuales y perfil medio",
+       x = "Visita", y = "PAS (mmHg)")`} />
+
+<SASAccordion title="Código SAS equivalente, exploración PAS" code={`proc sgplot data=pa;
+  series x=visita y=pas / group=id lineattrs=(pattern=solid) transparency=0.75;
+run;
+
+proc means data=pa noprint;
+  class grupo visita;
+  var pas;
+  output out=resumen_pa mean=media;
+run;
+
+proc sgplot data=resumen_pa;
+  series x=visita y=media / group=grupo lineattrs=(thickness=2);
+run;`} />
+
+<RCell id="pa-modelo-covarianza" title="Caso 1, Modelo LMM y comparación de covarianza (AR1 vs CS)" code={`library(lme4)
+library(nlme)
+
+if (!exists("pa")) {
+  set.seed(321)
+  n_pac <- 40; n_vis <- 5
+  pa <- data.frame(
+    id = rep(1:n_pac, each = n_vis),
+    visita = rep(0:(n_vis - 1), n_pac),
+    grupo = rep(rep(c("Placebo", "Farmaco"), each = n_pac / 2), each = n_vis)
+  )
+  b0 <- rep(rnorm(n_pac, 0, 6), each = n_vis)
+  efecto <- ifelse(pa$grupo == "Farmaco", -2.5, 0)
+  pa$pas <- 140 + b0 + 1 * pa$visita + efecto * pa$visita + rnorm(nrow(pa), 0, 3)
+}
+
+# LMM con intercepto y pendiente aleatorios (lme4)
+m_lmm <- lmer(pas ~ visita * grupo + (1 + visita | id), data = pa, REML = TRUE)
+print(summary(m_lmm)$coefficients)
+
+# Alternativa: gls con correlacion AR(1) vs simetria compuesta (nlme)
+g_ar1 <- gls(pas ~ visita * grupo, data = pa,
+              correlation = corAR1(form = ~ visita | id), method = "REML")
+g_cs <- gls(pas ~ visita * grupo, data = pa,
+             correlation = corCompSymm(form = ~ visita | id), method = "REML")
+
+data.frame(
+  modelo = c("LMM (int+pend aleatorios)", "GLS + AR(1)", "GLS + CS"),
+  AIC = c(AIC(m_lmm), AIC(g_ar1), AIC(g_cs)),
+  BIC = c(BIC(m_lmm), BIC(g_ar1), BIC(g_cs))
+)`} />
+
+<SASAccordion title="Código SAS equivalente, LMM y comparación de covarianza" code={`/* Intercepto + pendiente aleatorios */
+proc mixed data=pa method=reml;
+  class id grupo;
+  model pas = visita grupo visita*grupo / solution ddfm=kr;
+  random intercept visita / subject=id type=un;
+run;
+
+/* AR(1) sobre los residuos (alternativa a efectos aleatorios) */
+proc mixed data=pa method=reml;
+  class id grupo;
+  model pas = visita grupo visita*grupo / solution;
+  repeated visita / subject=id type=ar(1) rcorr;
+run;
+
+/* Simetria compuesta */
+proc mixed data=pa method=reml;
+  class id grupo;
+  model pas = visita grupo visita*grupo / solution;
+  repeated visita / subject=id type=cs rcorr;
+run;
+
+/* Comparar "Fit Statistics" (AIC, BIC) entre los tres ajustes */`} />
+
+<RCell id="pa-diagnostico" title="Caso 1, Diagnóstico con DHARMa" code={`library(lme4)
+# El paquete DHARMa debe estar cargado en el entorno WebR
+library(DHARMa)
+
+if (!exists("pa")) {
+  set.seed(321)
+  n_pac <- 40; n_vis <- 5
+  pa <- data.frame(
+    id = rep(1:n_pac, each = n_vis),
+    visita = rep(0:(n_vis - 1), n_pac),
+    grupo = rep(rep(c("Placebo", "Farmaco"), each = n_pac / 2), each = n_vis)
+  )
+  b0 <- rep(rnorm(n_pac, 0, 6), each = n_vis)
+  efecto <- ifelse(pa$grupo == "Farmaco", -2.5, 0)
+  pa$pas <- 140 + b0 + 1 * pa$visita + efecto * pa$visita + rnorm(nrow(pa), 0, 3)
+}
+
+m_lmm <- lmer(pas ~ visita * grupo + (1 + visita | id), data = pa, REML = TRUE)
+sim_pa <- simulateResiduals(m_lmm, n = 250)
+plot(sim_pa)
+print(testDispersion(sim_pa))`} />
+
+<SASAccordion title="Código SAS equivalente, diagnóstico PAS" code={`proc mixed data=pa method=reml plots=all;
+  class id grupo;
+  model pas = visita grupo visita*grupo / solution outpred=pred residual;
+  random intercept visita / subject=id type=un;
+run;
+
+/* plots=all incluye: residuales estandarizados vs predichos,
+   histograma de residuales y Q-Q plot, analogo a plot(simulateResiduals(...))
+   en DHARMa, aunque DHARMa usa residuos simulados en lugar de
+   "raw"/Pearson. */`} />
+
+<RCell id="infeccion-exploracion" title="Caso 2, Exploración: proporción de infección por centro" code={`library(ggplot2)
+library(dplyr)
+
+set.seed(654)
+n_centros <- 10
+n_pac <- 25
+inf <- data.frame(
+  centro = factor(rep(1:n_centros, each = n_pac)),
+  tipo = rep(rep(c("A", "B"), length.out = n_pac), n_centros)
+)
+b_centro <- rep(rnorm(n_centros, 0, 1), each = n_pac)
+lin <- -1 + 0.9 * (inf$tipo == "B") + b_centro
+inf$infeccion <- rbinom(nrow(inf), 1, plogis(lin))
+
+resumen_inf <- inf %>%
+  group_by(centro, tipo) %>%
+  summarise(prop = mean(infeccion), .groups = "drop")
+
+ggplot(resumen_inf, aes(centro, prop, fill = tipo)) +
+  geom_col(position = "dodge") +
+  theme_minimal() +
+  labs(title = "Proporción de infección por centro y tipo de intervención",
+       x = "Centro", y = "Proporción de infección")`} />
+
+<SASAccordion title="Código SAS equivalente, exploración infecciones por centro" code={`proc sql;
+  create table resumen_inf as
+  select centro, tipo, mean(infeccion) as prop
+  from inf
+  group by centro, tipo;
+quit;
+
+proc sgplot data=resumen_inf;
+  vbar centro / response=prop group=tipo groupdisplay=cluster;
+run;`} />
+
+<RCell id="infeccion-glmm-gee" title="Caso 2, GLMM (condicional) vs GEE (marginal)" code={`library(lme4)
+# El paquete geepack debe estar cargado en el entorno WebR
+library(geepack)
+
+if (!exists("inf")) {
+  set.seed(654)
+  n_centros <- 10; n_pac <- 25
+  inf <- data.frame(
+    centro = factor(rep(1:n_centros, each = n_pac)),
+    tipo = rep(rep(c("A", "B"), length.out = n_pac), n_centros)
+  )
+  b_centro <- rep(rnorm(n_centros, 0, 1), each = n_pac)
+  lin <- -1 + 0.9 * (inf$tipo == "B") + b_centro
+  inf$infeccion <- rbinom(nrow(inf), 1, plogis(lin))
+}
+
+# GLMM: odds ratio condicional al centro
+m_glmm <- glmer(infeccion ~ tipo + (1 | centro), data = inf, family = binomial)
+or_cond <- exp(fixef(m_glmm)["tipoB"])
+
+# GEE: odds ratio marginal (poblacional)
+m_gee <- geeglm(infeccion ~ tipo, data = inf, id = centro,
+                 family = binomial, corstr = "exchangeable")
+or_marg <- exp(coef(m_gee)["tipoB"])
+
+data.frame(
+  enfoque = c("GLMM (condicional al centro)", "GEE (marginal/poblacional)"),
+  OR = round(c(or_cond, or_marg), 2)
+)`} />
+
+<SASAccordion title="Código SAS equivalente, GLMM y GEE" code={`/* GLMM: odds ratio condicional al centro */
+proc glimmix data=inf;
+  class centro tipo;
+  model infeccion(event='1') = tipo / dist=binary link=logit solution oddsratio;
+  random intercept / subject=centro;
+run;
+
+/* GEE: odds ratio marginal */
+proc gee data=inf;
+  class centro tipo;
+  model infeccion(event='1') = tipo / dist=binomial link=logit;
+  repeated subject=centro / type=exch corrw;
+run;
+
+/* La tabla "Odds Ratio Estimates" de PROC GLIMMIX da el OR condicional
+   al centro; los "Estimates" exponenciados de PROC GEE (con LSMEANS /
+   ESTIMATE adecuados) dan el OR marginal, comparable a geeglm(). */`} />
+
+<RCell id="infeccion-diagnostico" title="Caso 2, Diagnóstico GLMM con DHARMa" code={`library(lme4)
+# El paquete DHARMa debe estar cargado en el entorno WebR
+library(DHARMa)
+
+if (!exists("inf")) {
+  set.seed(654)
+  n_centros <- 10; n_pac <- 25
+  inf <- data.frame(
+    centro = factor(rep(1:n_centros, each = n_pac)),
+    tipo = rep(rep(c("A", "B"), length.out = n_pac), n_centros)
+  )
+  b_centro <- rep(rnorm(n_centros, 0, 1), each = n_pac)
+  lin <- -1 + 0.9 * (inf$tipo == "B") + b_centro
+  inf$infeccion <- rbinom(nrow(inf), 1, plogis(lin))
+}
+
+m_glmm <- glmer(infeccion ~ tipo + (1 | centro), data = inf, family = binomial)
+sim_inf <- simulateResiduals(m_glmm, n = 250)
+plot(sim_inf)
+print(testDispersion(sim_inf))`} />
+
+<SASAccordion title="Código SAS equivalente, diagnóstico GLMM (infecciones)" code={`proc glimmix data=inf plots=all;
+  class centro tipo;
+  model infeccion(event='1') = tipo / dist=binary link=logit;
+  random intercept / subject=centro;
+  output out=glimmix_out pred=pred resid=resid;
+run;
+
+/* PROC GLIMMIX no ofrece un equivalente directo a los residuos
+   simulados de DHARMa; plots=all entrega residuos Pearson/estudentizados
+   condicionales, utiles para una revision similar (ausencia de patrones,
+   varianza aproximadamente constante en la escala del enlace). */`} />
+
+<Flashcards items={[
+  {
+    front: "lmer(y ~ x + (1 | id), data, REML = TRUE)",
+    back: "PROC MIXED, RANDOM INTERCEPT / SUBJECT=id; METHOD=REML"
+  },
+  {
+    front: "glmer(y ~ x + (1 | id), family = binomial)",
+    back: "PROC GLIMMIX, CLASS id; MODEL y(event=\"1\") = x / DIST=BINARY; RANDOM INTERCEPT / SUBJECT=id"
+  },
+  {
+    front: "geeglm(y ~ x, id = grupo, family = binomial, corstr = \"exchangeable\")",
+    back: "PROC GEE, CLASS grupo; MODEL y(event=\"1\") = x / DIST=BINOMIAL; REPEATED SUBJECT=grupo / TYPE=EXCH"
+  },
+  {
+    front: "gls(y ~ x, correlation = corAR1(form = ~ t | id))",
+    back: "PROC MIXED, MODEL y = x; REPEATED t / SUBJECT=id TYPE=AR(1)"
+  },
+  {
+    front: "gamm(y ~ s(tiempo), random = list(id = ~1))",
+    back: "PROC GAM / PROC GAMPL, MODEL y = SPLINE(tiempo); RANDOM INTERCEPT / SUBJECT=id (vía PROC GLIMMIX con efectos spline)"
+  },
+  {
+    front: "simulateResiduals(modelo) + plot()",
+    back: "PROC MIXED/GLIMMIX con PLOTS=ALL (residuos Pearson/estudentizados vs. predichos, QQ-plot)"
+  }
+]} />
+
+<Quiz questions={[
+  {
+    question: "En el Caso 1 (PAS con medidas repetidas), ¿qué dos enfoques son razonables para capturar la correlación intra-paciente?",
+    options: [
+      "Un LMM con intercepto y pendiente aleatorios, o un GLS con correlación AR(1)/CS sobre los residuos.",
+      "Una regresión lineal simple ignorando el id del paciente.",
+      "Un GEE con correlación independiente.",
+      "Un GLMM con familia Poisson."
+    ],
+    correctIndex: 0,
+    explanation: "Ambos enfoques (efectos aleatorios o correlación residual explícita) son formas válidas y comparables de modelar la dependencia intra-sujeto en una respuesta continua."
+  },
+  {
+    question: "En el Caso 2, si el objetivo es \"el efecto promedio del tipo de intervención sobre el riesgo de infección en la población de centros\", ¿qué OR es el relevante?",
+    options: [
+      "El OR marginal de la GEE (geeglm / PROC GEE).",
+      "El OR condicional del GLMM (glmer / PROC GLIMMIX).",
+      "Ambos son siempre numéricamente iguales.",
+      "Ninguno; se debe usar un modelo de regresión lineal."
+    ],
+    correctIndex: 0,
+    explanation: "El OR marginal de GEE responde directamente a la pregunta poblacional; el OR condicional del GLMM responde \"dentro de un centro dado\" y suele ser de mayor magnitud (atenuación marginal)."
+  },
+  {
+    question: "¿Qué tabla de SAS corresponde a VarCorr() en R?",
+    options: [
+      "\"Covariance Parameter Estimates\" (PROC MIXED/GLIMMIX).",
+      "\"Solution for Fixed Effects\".",
+      "\"Fit Statistics\".",
+      "\"Type 3 Tests of Fixed Effects\"."
+    ],
+    correctIndex: 0,
+    explanation: "VarCorr() en R extrae las varianzas/covarianzas de los efectos aleatorios y residual, que en SAS aparecen en \"Covariance Parameter Estimates\"."
+  },
+  {
+    question: "Para diagnosticar sobredispersión en el GLMM binomial del Caso 2 usando R, ¿qué función es la adecuada?",
+    options: [
+      "testDispersion(simulateResiduals(modelo)).",
+      "shapiro.test(modelo).",
+      "AIC(modelo) únicamente.",
+      "cor(modelo)."
+    ],
+    correctIndex: 0,
+    explanation: "testDispersion() sobre los residuos simulados de DHARMa evalúa formalmente la sobre/infra-dispersión del GLMM ajustado."
+  }
+]} />

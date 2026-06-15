@@ -1,0 +1,236 @@
+---
+title: "Residuos simulados en datos de progesterona"
+slug: "diagnostico-residuos-dharma"
+subtitle: "Residuos simulados para validar supuestos, detectar outliers y documentar desviaciones del modelo."
+objective:
+  - "Ajustar un LMM con pendiente aleatoria sobre datos hormonales."
+  - "Explicar por qué los residuos \"crudos\" de un LMM son difíciles de interpretar."
+  - "Generar y leer los residuos simulados de DHARMa (QQ-plot, residual vs. ajustado)."
+  - "Aplicar pruebas formales de uniformidad, dispersión y outliers."
+  - "Documentar hallazgos diagnósticos con recomendaciones claras para el equipo clínico."
+order: 6
+datasets:
+  - "progesterone (concentraciones hormonales por ciclo menstrual)"
+---
+
+## ¿Por qué no basta con mirar los residuos "a mano"?
+
+En un modelo de regresión simple, revisar residuos es sencillo: residuo vs. ajustado, QQ-plot, listo. En un LMM la historia es más compleja porque hay **dos fuentes de variación** (efectos aleatorios y residual) y los residuos "crudos" ($y_{it} - \hat y_{it}$) no siempre siguen una distribución conocida de forma simple, especialmente con tamaños de muestra pequeños o estructuras de covarianza complejas.
+
+El paquete **DHARMa** (*Diagnostics for HierARchical Models*) resuelve esto con **residuos simulados**: simula muchas réplicas de la respuesta a partir del modelo ajustado, y compara dónde cae el valor observado dentro de esa distribución simulada. El resultado es un residuo con una interpretación **uniforme(0,1)** bajo un modelo correcto, sin importar la complejidad del LMM/GLMM subyacente.
+
+## El dataset de progesterona
+
+Los niveles de progesterona (`logp`) siguen una curva característica a lo largo del ciclo menstrual: bajos en la fase folicular, con un pico marcado tras la ovulación. Ajustamos un LMM con `time` y `group` (por ejemplo, mujeres con anovulación vs. ciclos normales) como efectos fijos, y un intercepto y pendiente aleatorios por mujer.
+
+## Qué mirar en los gráficos de DHARMa
+
+`plot(sim)` produce dos paneles clave:
+
+- **QQ-plot de residuos uniformes:** si el modelo es adecuado, los puntos deben caer sobre la línea diagonal. Desviaciones sistemáticas sugieren mala especificación de la distribución o de la parte sistemática del modelo.
+- **Residual vs. predicho:** busca patrones (curvas, abanicos). Un patrón en forma de abanico sugiere **heterocedasticidad** no modelada; una curva sugiere que falta un término no lineal (por ejemplo, un spline, Módulo 9).
+
+Las pruebas formales complementan la inspección visual:
+
+- `testUniformity()`: prueba de Kolmogorov-Smirnov sobre los residuos simulados, un valor p pequeño indica que no siguen Uniforme(0,1).
+- `testDispersion()`: compara la varianza observada con la simulada, detecta sobre/sub-dispersión.
+- `testOutliers()`: identifica observaciones que caen fuera del rango de las simulaciones (outliers "DHARMa").
+
+## De los gráficos a las recomendaciones
+
+Un diagnóstico no termina en "el modelo está mal" o "el modelo está bien": el valor real está en traducir los hallazgos en **acciones concretas**, ¿agregar un término no lineal?, ¿revisar una observación específica con el equipo clínico?, ¿reportar el hallazgo como limitación si no afecta las conclusiones principales?
+
+<ProcessSteps title="Flujo de análisis" steps={[
+  {
+    title: "Ajustar",
+    description: "Especificar y ajustar el LMM con la estructura de efectos fijos/aleatorios que mejor representa el diseño del estudio."
+  },
+  {
+    title: "Simular",
+    description: "simulateResiduals() genera réplicas de la respuesta bajo el modelo ajustado (típicamente 250-1000 simulaciones)."
+  },
+  {
+    title: "Inspeccionar",
+    description: "plot(sim) para revisar el QQ-plot y el patrón de residuos vs. predichos."
+  },
+  {
+    title: "Probar formalmente",
+    description: "testUniformity(), testDispersion() y testOutliers() para cuantificar las desviaciones observadas."
+  },
+  {
+    title: "Documentar",
+    description: "Traducir cada hallazgo en una recomendación: ajustar el modelo, revisar un dato puntual, o reportar como limitación."
+  }
+]} />
+
+<DataTable caption="Guía rápida de interpretación de las pruebas DHARMa" columns={[
+  "Función",
+  "Qué evalúa",
+  "Valor p pequeño sugiere",
+  "Posible acción"
+]} rows={[
+  [
+    "testUniformity()",
+    "Los residuos simulados siguen U(0,1)",
+    "Mala especificación de la distribución o la media",
+    "Revisar familia/enlace, agregar términos no lineales"
+  ],
+  [
+    "testDispersion()",
+    "Varianza observada vs. simulada",
+    "Sobre/sub-dispersión",
+    "Agregar efecto aleatorio adicional o término de dispersión"
+  ],
+  [
+    "testOutliers()",
+    "Observaciones fuera del rango simulado",
+    "Presencia de outliers influyentes",
+    "Inspeccionar esos sujetos/observaciones con el equipo clínico"
+  ]
+]} />
+
+<Callout type="info" title="Info: ¿cuántas simulaciones?">
+n = 250 suele ser suficiente para exploración rápida; para el reporte final usa n = 1000 o más, así las pruebas (KS, dispersión) son más estables y reproducibles.
+</Callout>
+
+<Callout type="warning" title={"Atención: un \"p < 0.05\" no es un veredicto automático"}>
+Con tamaños de muestra grandes, testUniformity() puede dar p pequeño ante desviaciones triviales. Combina siempre la prueba formal con la inspección visual y el juicio clínico sobre la magnitud del problema.
+</Callout>
+
+<RCell id="progesterone-lmm" title="Ajustar el LMM y graficar las trayectorias" code={`# Cargamos paquetes y datos
+library(lme4)
+library(ggplot2)
+library(dplyr)
+
+prog <- read.csv("https://raw.githubusercontent.com/jcsalazaru/datasets/main/progesterone.csv")
+prog <- prog %>%
+  mutate(logp  = as.numeric(gsub(",", ".", logp)),
+         id    = factor(id),
+         group = factor(group))
+
+# LMM con intercepto y pendiente aleatorios por mujer (id)
+mod_prog <- lmer(logp ~ time * group + (time | id), data = prog)
+summary(mod_prog)
+
+# Trayectorias observadas con tendencia lineal por grupo
+ggplot(prog, aes(time, logp, color = group)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(title = "Progesterona observada por grupo", x = "Tiempo", y = "log(progesterona)") +
+  theme_minimal()`} />
+
+<SASAccordion title="Alternativa en SAS: PROC MIXED + diagnóstico de residuos" code={`/* SAS no tiene un equivalente directo a los residuos simulados de
+   DHARMa; el diagnostico tradicional se basa en residuos
+   condicionales/marginales y graficos de RESIDUAL. */
+PROC MIXED DATA=progesterone1 METHOD=ML PLOTS=ALL;
+  CLASS id group;
+  MODEL logp = time group time*group / SOLUTION OUTPREDM=preds RESIDUAL;
+  RANDOM INTERCEPT time / SUBJECT=id TYPE=UN;
+RUN;
+
+/* PLOTS=ALL genera paneles de residuos vs. predicho y QQ-plot de
+   residuos estudentizados, analogos (aunque no identicos) a los
+   paneles de plot(sim) en DHARMa. */`} />
+
+<RCell id="progesterone-dharma" title="Generar y graficar los residuos simulados" code={`library(lme4)
+library(dplyr)
+library(DHARMa)
+
+if (!exists("prog")) {
+  prog <- read.csv("https://raw.githubusercontent.com/jcsalazaru/datasets/main/progesterone.csv")
+  prog <- prog %>%
+    mutate(logp  = as.numeric(gsub(",", ".", logp)),
+           id    = factor(id),
+           group = factor(group))
+}
+if (!exists("mod_prog")) {
+  mod_prog <- lmer(logp ~ time * group + (time | id), data = prog)
+}
+
+# Simulamos 500 replicas de la respuesta bajo el modelo ajustado
+sim <- simulateResiduals(mod_prog, n = 500)
+
+# QQ-plot (izquierda) + residuos vs. predicho (derecha)
+plot(sim)`} />
+
+<RCell id="progesterone-tests" title="Pruebas formales: uniformidad, dispersión y outliers" code={`library(lme4)
+library(dplyr)
+library(DHARMa)
+
+if (!exists("prog")) {
+  prog <- read.csv("https://raw.githubusercontent.com/jcsalazaru/datasets/main/progesterone.csv")
+  prog <- prog %>%
+    mutate(logp  = as.numeric(gsub(",", ".", logp)),
+           id    = factor(id),
+           group = factor(group))
+}
+if (!exists("mod_prog")) {
+  mod_prog <- lmer(logp ~ time * group + (time | id), data = prog)
+}
+if (!exists("sim")) {
+  sim <- simulateResiduals(mod_prog, n = 500)
+}
+
+# Cada prueba devuelve un estadistico y un valor p
+testUniformity(sim)
+testDispersion(sim)
+testOutliers(sim)
+
+# Residuos vs. una covariable especifica (ej. tiempo): util para
+# detectar heterocedasticidad o falta de ajuste en una variable concreta
+plotResiduals(sim, form = prog$time)`} />
+
+<Flashcards items={[
+  {
+    front: "¿Qué problema resuelven los \"residuos simulados\" de DHARMa?",
+    back: "Convierten los residuos de cualquier LMM/GLMM (sin importar su complejidad) en valores con distribución Uniforme(0,1) bajo un modelo correcto, facilitando un diagnóstico estandarizado."
+  },
+  {
+    front: "¿Qué patrón en \"residual vs. predicho\" sugiere heterocedasticidad no modelada?",
+    back: "Un patrón en forma de abanico (la dispersión de los residuos cambia sistemáticamente con el valor predicho)."
+  },
+  {
+    front: "¿Qué mide testDispersion()?",
+    back: "Compara la varianza observada de los residuos con la varianza esperada bajo el modelo simulado, para detectar sobre- o sub-dispersión."
+  },
+  {
+    front: "¿Por qué no basta con un valor p significativo para decidir que \"el modelo está mal\"?",
+    back: "Con muestras grandes, pequeñas desviaciones pueden producir p-valores muy bajos sin ser clínicamente relevantes; hay que combinar la prueba con inspección visual y juicio clínico."
+  }
+]} />
+
+<Quiz questions={[
+  {
+    question: "¿Qué distribución deberían seguir los residuos simulados de DHARMa si el modelo es correcto?",
+    options: [
+      "Normal estándar",
+      "Uniforme(0,1)",
+      "Chi-cuadrado",
+      "t de Student"
+    ],
+    correctIndex: 1,
+    explanation: "DHARMa reescala los residuos para que, bajo un modelo correctamente especificado, se distribuyan como Uniforme(0,1), sin importar la familia/distribución original del modelo."
+  },
+  {
+    question: "En plotResiduals(sim, form = prog$time), ¿qué estamos evaluando?",
+    options: [
+      "Si el modelo converge más rápido con el tiempo",
+      "Si hay un patrón de los residuos respecto a la variable time que el modelo no capturó",
+      "El número de observaciones por valor de time",
+      "La correlación entre time y group"
+    ],
+    correctIndex: 1,
+    explanation: "Graficar los residuos simulados contra una covariable específica ayuda a detectar falta de ajuste o heterocedasticidad asociada a esa variable en particular."
+  },
+  {
+    question: "testOutliers(sim) señala varias observaciones como outliers. ¿Cuál es la mejor primera acción?",
+    options: [
+      "Eliminarlas automáticamente del dataset",
+      "Ignorarlas porque DHARMa siempre detecta outliers",
+      "Inspeccionarlas individualmente y discutir su plausibilidad clínica antes de decidir qué hacer",
+      "Cambiar inmediatamente a un modelo no paramétrico"
+    ],
+    correctIndex: 2,
+    explanation: "Un outlier estadístico no es automáticamente un error de datos; antes de cualquier acción (corregir, excluir, o dejarlo) se debe revisar su plausibilidad clínica con el equipo correspondiente."
+  }
+]} />

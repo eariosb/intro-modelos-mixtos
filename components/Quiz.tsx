@@ -2,14 +2,7 @@
 
 import { useState } from 'react';
 import clsx from 'clsx';
-
-export interface QuizQuestion {
-  question: string;
-  options: string[];
-  /** Index into `options` of the correct answer */
-  correctIndex: number;
-  explanation?: string;
-}
+import type { QuizQuestion, QuizProps } from '@/types/course';
 
 function QuizItem({ q, index }: { q: QuizQuestion; index: number }) {
   const [selected, setSelected] = useState<number | null>(null);
@@ -60,7 +53,7 @@ function QuizItem({ q, index }: { q: QuizQuestion; index: number }) {
  * Self-assessment quiz rendered at the end of a lesson. Each question
  * is answered independently and reveals immediate feedback.
  */
-export function Quiz({ questions, title }: { questions: QuizQuestion[]; title?: string }) {
+export function Quiz({ questions, title }: QuizProps) {
   if (!questions?.length) return null;
   return (
     <section className="my-8">

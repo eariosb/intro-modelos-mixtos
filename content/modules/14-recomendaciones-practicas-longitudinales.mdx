@@ -1,0 +1,608 @@
+---
+title: "Guía experta de recomendaciones metodológicas"
+slug: "recomendaciones-practicas-longitudinales"
+subtitle: "Guía experta de recomendaciones metodológicas: exploración, especificación de efectos aleatorios, estructuras de covarianza, selección de modelos, diagnóstico y árbol de decisión."
+objective:
+  - "Detectar la estructura longitudinal/de medidas repetidas de un conjunto de datos y explorarla gráficamente."
+  - "Especificar y justificar la estructura de efectos aleatorios de un modelo mixto."
+  - "Elegir una estructura de covarianza o de correlación de trabajo adecuada al diseño."
+  - "Comparar modelos anidados y no anidados con criterios apropiados (LRT, AIC, BIC, cAIC)."
+  - "Diagnosticar el ajuste con residuos, DHARMa y normalidad de los efectos aleatorios."
+  - "Decidir entre LMM, GLMM, GEE, enfoques marginales, GAMM o alternativas no paramétricas según el problema."
+order: 14
+datasets:
+  - "sleepstudy (lme4)"
+  - "Orthodont (nlme)"
+  - "dietox (geepack)"
+  - "datos simulados"
+---
+
+## 1. Detección y tratamiento de datos longitudinales
+
+Antes de ajustar cualquier modelo, conviene confirmar que los datos tienen
+estructura de **medidas repetidas o anidamiento**: varias observaciones por
+sujeto, paciente, clúster o unidad experimental, medidas en el tiempo o bajo
+condiciones relacionadas. Señales típicas en el conjunto de datos:
+
+- Una columna identificadora de sujeto/cluster (`id`, `subject`, `center`) que
+  se repite en varias filas.
+- Una variable de tiempo/ocasión (`visita`, `día`, `semana`) anidada dentro
+  de cada sujeto.
+- Más filas que sujetos únicos: `nrow(datos) > length(unique(datos$id))`.
+
+**Exploración recomendada (siempre antes de modelar):**
+
+- *Spaghetti plots*: una línea por sujeto, para ver heterogeneidad de
+  trayectorias individuales.
+- *Perfiles medios*: la media (± error estándar) por grupo y tiempo, para ver
+  la tendencia poblacional.
+- *Boxplots por tiempo*: para detectar cambios de varianza (heterocedasticidad)
+  a lo largo de las ocasiones.
+
+**Desbalance y datos faltantes:** en estudios longitudinales es habitual que no
+todos los sujetos tengan el mismo número de mediciones (pérdidas de
+seguimiento, visitas perdidas). Los modelos mixtos (LMM/GLMM) manejan de forma
+natural datos no balanceados y faltantes bajo el supuesto **MAR** (*missing at
+random*): la probabilidad de faltar puede depender de lo observado, pero no de
+lo no observado dado lo observado. Si se sospecha **MNAR** (la falta depende
+de valores no observados, p. ej. pacientes que abandonan porque empeoran),
+conviene considerar modelos de selección, modelos de mezcla de patrones, o
+análisis de sensibilidad. La **imputación múltiple** (paquete `mice`) es una
+alternativa cuando se requiere un análisis completo posterior (p. ej. GEE, que
+sí asume datos faltantes completamente al azar, **MCAR**, para mantener
+consistencia bajo el esquema de estimación por ecuaciones).
+
+## 2. Especificación de efectos aleatorios
+
+La estructura de efectos aleatorios traduce la pregunta "¿qué varía entre
+sujetos?" en componentes del modelo:
+
+- **Solo intercepto aleatorio** $$Y_{ij} = \beta_0 + \beta_1 t_{ij} + b_{0i} + \epsilon_{ij}$$
+ , cada sujeto tiene su propio nivel basal, pero la misma tendencia temporal
+  promedio. Adecuado cuando las trayectorias individuales son aproximadamente
+  paralelas.
+- **Solo pendiente aleatoria** (raro sin intercepto aleatorio), cada sujeto
+  difiere en su tasa de cambio pero comparte el nivel basal; rara vez tiene
+  sentido sustantivo por sí sola.
+- **Intercepto + pendiente aleatorios** $$Y_{ij} = \beta_0 + \beta_1 t_{ij} + b_{0i} + b_{1i} t_{ij} + \epsilon_{ij}$$
+ , cada sujeto tiene su propio nivel basal *y* su propia tendencia temporal.
+  Pueden especificarse **correlacionados** (`(1 + tiempo | sujeto)`, default en
+  `lme4`) o **no correlacionados** (`(1 | sujeto) + (0 + tiempo | sujeto)`).
+- **Anidamiento jerárquico**: por ejemplo pacientes dentro de centros
+  (`(1 | centro/paciente)` o equivalente `(1 | centro) + (1 | centro:paciente)`).
+- **Efectos cruzados (no anidados)**: por ejemplo evaluadores y pacientes que
+  no están anidados entre sí (`(1 | paciente) + (1 | evaluador)`).
+
+**¿Cuándo es necesario un efecto aleatorio adicional?** Tres herramientas
+complementarias:
+
+1. **LRT (test de razón de verosimilitudes)** entre modelos anidados ajustados
+   por **ML** (no REML, porque REML no permite comparar efectos fijos
+   distintos, y para efectos aleatorios el LRT clásico es conservador). Ojo:
+   cuando la hipótesis nula pone una varianza en el límite del espacio de
+   parámetros (cero), el estadístico LRT no sigue una $\chi^2$ estándar —
+   el p-valor reportado por `anova()` es conservador (demasiado grande).
+2. **AIC/BIC**: menor es mejor; útiles para comparar estructuras de efectos
+   aleatorios no anidadas (p. ej. intercepto+pendiente correlacionados vs.
+   anidamiento jerárquico).
+3. **Inspección visual**: si los interceptos/pendientes individuales (BLUPs)
+   estimados muestran variación sustantiva y patrones interpretables, hay
+   evidencia de que el efecto aleatorio aporta.
+
+## 3. Selección de estructuras de covarianza y matrices de trabajo
+
+En `nlme::gls`/`nlme::lme` se modela directamente la matriz de
+correlación/covarianza de los residuos dentro de cada sujeto mediante objetos
+`corStruct`:
+
+- **`corCompSymm`** (simetría compuesta / intercambiable): correlación
+  constante entre cualquier par de tiempos. Equivale, en LMM, a un modelo con
+  solo intercepto aleatorio.
+- **`corAR1`**: correlación que decae geométricamente con la distancia entre
+  tiempos ($\rho^{|t_i - t_j|}$); apropiada cuando los tiempos están
+  igualmente espaciados y la dependencia se atenúa con el tiempo.
+- **`corExp`** / **`corGaus`**: análogas a AR(1) pero para tiempos
+  continuos/desigualmente espaciados, con decaimiento exponencial o gaussiano.
+- **`corSymm`** (no estructurada): una correlación distinta para cada par de
+  tiempos, máxima flexibilidad, pero muchos parámetros (requiere series
+  cortas/balanceadas).
+- **`corIdent`**: independencia (sin correlación intra-sujeto), rara vez
+  realista en datos repetidos, útil como referencia.
+
+**Cómo elegir:** combinar (a) justificación clínica/sustantiva (¿la correlación
+debería decaer con el tiempo o ser constante?), (b) gráficos de
+autocorrelación de los residuos (`ACF`) por sujeto/tiempo, y (c) comparación
+por AIC/BIC entre estructuras anidadas o no anidadas, ajustando por **REML**
+(la covarianza se compara mejor con REML que con ML).
+
+**Heterocedasticidad** (varianza que cambia con el tiempo, grupo o predictor)
+se modela con funciones de varianza: `varIdent` (varianza distinta por nivel
+de un factor, p. ej. por tiempo), `varPower` (varianza proporcional a una
+potencia de un predictor) y `varExp` (varianza exponencial en un predictor).
+
+**Para GEE** (`geepack::geeglm`), en lugar de modelar la covarianza
+explícitamente, se especifica una **estructura de correlación de trabajo**
+(`corstr`): `"independence"`, `"exchangeable"`, `"ar1"` o `"unstructured"`.
+Gracias a los **errores estándar robustos tipo sándwich**, las estimaciones de
+los coeficientes poblacionales (marginales) son consistentes incluso si la
+estructura de trabajo está mal especificada, aunque la eficiencia mejora si
+se acierta razonablemente.
+
+## 4. Comparación y selección de modelos
+
+Estrategia recomendada, de forma **secuencial**:
+
+1. **Efectos fijos**: empezar con el modelo "saturado" sustantivamente
+   razonable (todas las covariables y sus interacciones de interés).
+2. **Efectos aleatorios**: con los efectos fijos fijos, comparar estructuras
+   de efectos aleatorios anidadas vía LRT (ML) y AIC/BIC, de la más simple a
+   la más compleja (intercepto → intercepto+pendiente → anidamiento).
+3. **Covarianza/correlación residual**: con la estructura de efectos
+   aleatorios elegida, comparar estructuras de covarianza residual (REML) o
+   estructuras de correlación de trabajo (GEE).
+4. Solo entonces, si interesa, simplificar **efectos fijos** comparando con
+   AIC/BIC o tests de Wald (con ML si se comparan efectos fijos por LRT).
+
+**Criterios:**
+
+- **LRT**: válido para modelos anidados ajustados con el mismo método (ML
+  para efectos fijos, ML o REML para efectos aleatorios); recordar la
+  advertencia de *boundary* del punto 2.
+- **AIC / BIC**: comparan modelos anidados o no anidados; BIC penaliza más la
+  complejidad y tiende a preferir modelos más simples en muestras grandes.
+- **cAIC / mBIC**: versiones que tienen en cuenta los grados de libertad
+  "efectivos" de los efectos aleatorios, más apropiadas cuando el interés
+  principal es la estructura aleatoria (paquete `cAIC4`).
+- **Validación cruzada / bootstrap**: especialmente útiles cuando el objetivo
+  es predicción (más que inferencia), o cuando AIC/BIC no distinguen
+  claramente entre modelos candidatos.
+
+## 5. Diagnóstico de modelos mixtos
+
+- **Residuos estandarizados/studentizados** vs. valores ajustados: buscar
+  ausencia de patrones y varianza aproximadamente constante.
+- **DHARMa** (residuos simulados): especialmente útil en GLMM, donde los
+  residuos "crudos" no son fáciles de interpretar. `simulateResiduals()`
+  genera residuos cuantil-cuantil comparables a un LMM, permitiendo:
+  - `plot()`: QQ-plot de residuos simulados + residuos vs. predichos.
+  - `testDispersion()`: sobre/infra-dispersión.
+  - `testZeroInflation()`: exceso de ceros respecto a lo esperado por el
+    modelo.
+- **Outliers e influyentes**: distancia de Cook a nivel de observación y de
+  sujeto (paquete `influence.ME`), DFBETAS para evaluar el impacto de cada
+  sujeto sobre las estimaciones de efectos fijos.
+- **Normalidad de los efectos aleatorios**: gráfico Q-Q de los BLUPs
+  (`ranef()`) y, de forma exploratoria, prueba de Shapiro-Wilk sobre los
+  BLUPs, recordando que con pocos sujetos esta prueba tiene poca potencia.
+
+## 6. Árbol de decisión: ¿qué enfoque usar?
+
+Preguntas guía, en orden:
+
+1. **¿Qué tipo de respuesta tengo?** Continua aproximadamente normal → LMM.
+   Binaria, conteo, u otra de la familia exponencial → GLMM o GEE. Respuesta
+   con relación claramente no lineal con el tiempo/predictores → considerar
+   **GAMM** (`mgcv::gamm`, con `s(tiempo)`).
+2. **¿Cuál es el objetivo de la inferencia?** Si interesa el efecto
+   **específico del sujeto** (p. ej. "¿cuánto cambia *este* paciente?") →
+   modelo de **efectos mixtos** (LMM/GLMM), cuyos coeficientes son
+   *condicionales* a los efectos aleatorios. Si interesa el efecto
+   **poblacional promedio** (p. ej. "¿cuál es el efecto promedio del
+   tratamiento en la población?"), especialmente con respuestas no normales,
+   **GEE** ofrece directamente coeficientes *marginales*.
+3. **¿Qué tan compleja es la correlación intra-sujeto y qué tan grande es la
+   muestra?** Con pocos clústeres o estructuras de correlación complejas, los
+   GLMM con cuadratura/Laplace pueden ser inestables; GEE con estructura de
+   trabajo simple (intercambiable) suele ser más robusto, a costa de perder la
+   interpretación condicional.
+4. **¿Se cumplen los supuestos de un modelo paramétrico?** Si no (residuos muy
+   no normales, relaciones fuertemente no lineales que no se resuelven con
+   transformaciones), considerar **GAMM** o métodos **no paramétricos**
+   (p. ej. modelos basados en rangos para medidas repetidas).
+5. **¿Exceso de ceros o respuestas acotadas en [0,1]?** Considerar modelos
+   **ZIP/ZINB** (conteos con inflación de ceros) o **ZOIP/beta** (proporciones
+   con masa en 0 y/o 1).
+6. **REML vs. ML**: usar **REML** (default en `lmer`/`lme`) para la
+   estimación final y para comparar estructuras de covarianza/efectos
+   aleatorios; usar **ML** si se necesita comparar modelos con distintos
+   efectos fijos por LRT, o si se requiere el AIC/BIC para comparar efectos
+   fijos.
+
+<ProcessSteps title="Flujo de análisis" steps={[
+  {
+    title: "1. Explorar",
+    description: "Spaghetti plots, perfiles medios y boxplots por tiempo para entender heterogeneidad, tendencia y heterocedasticidad."
+  },
+  {
+    title: "2. Especificar efectos fijos",
+    description: "Definir el modelo de efectos fijos sustantivamente relevante (covariables, tiempo, interacciones de interés)."
+  },
+  {
+    title: "3. Especificar efectos aleatorios",
+    description: "Comparar intercepto solo, intercepto+pendiente (con/sin correlación) y estructuras anidadas vía LRT (ML), AIC/BIC e inspección visual de BLUPs."
+  },
+  {
+    title: "4. Elegir covarianza/correlación",
+    description: "Con REML, comparar corCompSymm, corAR1, corSymm, etc. (o estructuras de trabajo en GEE) usando AIC/BIC y gráficos de autocorrelación."
+  },
+  {
+    title: "5. Diagnosticar",
+    description: "Residuos estandarizados, DHARMa (dispersión, zero-inflation), normalidad de BLUPs, outliers/influyentes."
+  },
+  {
+    title: "6. Reportar",
+    description: "Comunicar el modelo final, su justificación (LRT/AIC/BIC + diagnóstico) y, si aplica, análisis de sensibilidad ante datos faltantes."
+  }
+]} />
+
+<DataTable caption="Árbol de decisión simplificado: enfoque según escenario" columns={[
+  "Tipo de respuesta",
+  "Objetivo de inferencia",
+  "Enfoque recomendado"
+]} rows={[
+  [
+    "Continua, aprox. normal",
+    "Específico del sujeto",
+    "LMM (lmer / lme)"
+  ],
+  [
+    "Binaria / conteo",
+    "Específico del sujeto (condicional)",
+    "GLMM (glmer)"
+  ],
+  [
+    "Binaria / conteo",
+    "Poblacional (marginal)",
+    "GEE (geeglm)"
+  ],
+  [
+    "Continua o no normal",
+    "Tendencia no lineal en el tiempo",
+    "GAMM (mgcv::gamm)"
+  ],
+  [
+    "Conteo con exceso de ceros",
+    "Cualquiera",
+    "ZIP / ZINB (glmmTMB, GLMMadaptive)"
+  ],
+  [
+    "Proporción en [0,1] con masa en extremos",
+    "Cualquiera",
+    "ZOIP / regresión beta"
+  ]
+]} />
+
+<Callout type="tip" title="REML vs. ML: regla práctica">
+Usa REML (el valor por defecto) para la estimación final y para comparar estructuras de covarianza o de efectos aleatorios. Cambia a ML solo cuando necesites comparar modelos con distintos efectos fijos mediante LRT o AIC/BIC.
+</Callout>
+
+<Callout type="warning" title="LRT en el límite del espacio de parámetros">
+Al comparar un modelo con un efecto aleatorio adicional contra uno sin él, la varianza bajo H0 está en el límite (cero). El p-valor del LRT clásico (anova()) es conservador: si resulta significativo a pesar de esto, la evidencia a favor del efecto aleatorio es aún más fuerte; si no es significativo, considera también el AIC/BIC y la inspección visual antes de descartarlo.
+</Callout>
+
+<Callout type="tip" title="Datos faltantes y MAR">
+Los modelos mixtos (LMM/GLMM) usan toda la información disponible y son válidos bajo el supuesto MAR sin necesidad de imputar. La imputación múltiple (mice) es más relevante cuando el análisis principal es GEE, que requiere MCAR para mantener su validez, o cuando se desea armonizar varios análisis sobre el mismo conjunto de datos completo.
+</Callout>
+
+<Callout type="warning" title="No elijas la covarianza solo por el AIC">
+El AIC/BIC ayuda a comparar estructuras de covarianza, pero la elección también debe ser clínicamente plausible (¿tiene sentido que la correlación decaiga con el tiempo en este fenómeno?) y verificarse con gráficos de autocorrelación de los residuos.
+</Callout>
+
+<RCell id="exploracion-longitudinal" title="Exploración visual: spaghetti plot y perfiles medios" code={`library(ggplot2)
+library(dplyr)
+
+# Datos longitudinales simulados: 30 sujetos, 5 visitas, 2 grupos
+set.seed(2024)
+n_suj <- 30
+n_tiempo <- 5
+dat <- data.frame(
+  id = rep(1:n_suj, each = n_tiempo),
+  tiempo = rep(0:(n_tiempo - 1), n_suj),
+  grupo = rep(rep(c("Control", "Tratamiento"), each = n_suj / 2), each = n_tiempo)
+)
+b0 <- rep(rnorm(n_suj, 0, 2), each = n_tiempo)
+efecto_trt <- ifelse(dat$grupo == "Tratamiento", -0.8, 0)
+dat$y <- 10 + b0 + 0.5 * dat$tiempo + efecto_trt * dat$tiempo +
+  rnorm(nrow(dat), 0, 1)
+
+# Spaghetti plot: una linea por sujeto
+p1 <- ggplot(dat, aes(tiempo, y, group = id, color = grupo)) +
+  geom_line(alpha = 0.3) +
+  theme_minimal() +
+  labs(title = "Trayectorias individuales", x = "Visita", y = "Respuesta")
+print(p1)
+
+# Perfil medio por grupo
+resumen <- dat %>%
+  group_by(grupo, tiempo) %>%
+  summarise(media = mean(y), se = sd(y) / sqrt(n()), .groups = "drop")
+
+p2 <- ggplot(resumen, aes(tiempo, media, color = grupo)) +
+  geom_line(linewidth = 1) +
+  geom_errorbar(aes(ymin = media - se, ymax = media + se), width = 0.1) +
+  theme_minimal() +
+  labs(title = "Perfil medio por grupo", x = "Visita", y = "Media (+/- EE)")
+print(p2)`} />
+
+<SASAccordion title="Código SAS equivalente, exploración gráfica" code={`/* Spaghetti plot y perfil medio */
+proc sgplot data=longdata;
+  series x=tiempo y=y / group=id lineattrs=(pattern=solid) transparency=0.7;
+  by grupo;
+run;
+
+proc means data=longdata noprint;
+  class grupo tiempo;
+  var y;
+  output out=resumen mean=media stderr=ee;
+run;
+
+proc sgplot data=resumen;
+  series x=tiempo y=media / group=grupo;
+  scatter x=tiempo y=media / group=grupo yerrorlower=lo yerrorupper=hi;
+run;`} />
+
+<RCell id="especificacion-efectos-aleatorios" title="Comparar estructuras de efectos aleatorios (LRT, AIC, BIC)" code={`library(lme4)
+
+# Reutiliza 'dat' de la celda anterior (si no existe, vuelve a simularla)
+if (!exists("dat")) {
+  set.seed(2024)
+  n_suj <- 30; n_tiempo <- 5
+  dat <- data.frame(
+    id = rep(1:n_suj, each = n_tiempo),
+    tiempo = rep(0:(n_tiempo - 1), n_suj),
+    grupo = rep(rep(c("Control", "Tratamiento"), each = n_suj / 2), each = n_tiempo)
+  )
+  b0 <- rep(rnorm(n_suj, 0, 2), each = n_tiempo)
+  efecto_trt <- ifelse(dat$grupo == "Tratamiento", -0.8, 0)
+  dat$y <- 10 + b0 + 0.5 * dat$tiempo + efecto_trt * dat$tiempo + rnorm(nrow(dat), 0, 1)
+}
+
+# Modelo 1: solo intercepto aleatorio
+m1 <- lmer(y ~ tiempo * grupo + (1 | id), data = dat, REML = FALSE)
+
+# Modelo 2: intercepto + pendiente, sin correlacion
+m2 <- lmer(y ~ tiempo * grupo + (1 | id) + (0 + tiempo | id), data = dat, REML = FALSE)
+
+# Modelo 3: intercepto + pendiente, correlacionados
+m3 <- lmer(y ~ tiempo * grupo + (1 + tiempo | id), data = dat, REML = FALSE)
+
+# Comparacion por LRT (modelos anidados: m1 dentro de m2 dentro de m3)
+print(anova(m1, m2, m3))
+
+# Tabla resumen AIC/BIC
+data.frame(
+  modelo = c("Solo intercepto", "Int+pend sin corr", "Int+pend corr"),
+  AIC = c(AIC(m1), AIC(m2), AIC(m3)),
+  BIC = c(BIC(m1), BIC(m2), BIC(m3))
+)`} />
+
+<SASAccordion title="Código SAS equivalente, comparación de efectos aleatorios" code={`/* Modelo con solo intercepto aleatorio */
+proc mixed data=longdata method=ml covtest;
+  class id grupo;
+  model y = tiempo grupo tiempo*grupo / solution;
+  random intercept / subject=id;
+run;
+
+/* Modelo con intercepto + pendiente aleatorios correlacionados */
+proc mixed data=longdata method=ml covtest;
+  class id grupo;
+  model y = tiempo grupo tiempo*grupo / solution;
+  random intercept tiempo / subject=id type=un;
+run;
+
+/* PROC MIXED reporta -2 Log Likelihood, AIC y BIC en la tabla
+   "Fit Statistics"; la diferencia de -2LL entre modelos anidados
+   sigue (de forma conservadora) una mezcla de chi-cuadrado cuando
+   la hipotesis nula esta en el borde del espacio parametral. */`} />
+
+<RCell id="estructuras-covarianza" title="Estructuras de covarianza con nlme::gls" code={`library(nlme)
+
+if (!exists("dat")) {
+  set.seed(2024)
+  n_suj <- 30; n_tiempo <- 5
+  dat <- data.frame(
+    id = rep(1:n_suj, each = n_tiempo),
+    tiempo = rep(0:(n_tiempo - 1), n_suj),
+    grupo = rep(rep(c("Control", "Tratamiento"), each = n_suj / 2), each = n_tiempo)
+  )
+  b0 <- rep(rnorm(n_suj, 0, 2), each = n_tiempo)
+  efecto_trt <- ifelse(dat$grupo == "Tratamiento", -0.8, 0)
+  dat$y <- 10 + b0 + 0.5 * dat$tiempo + efecto_trt * dat$tiempo + rnorm(nrow(dat), 0, 1)
+}
+dat$tiempo_f <- factor(dat$tiempo)
+
+# Independencia (referencia)
+g_ind <- gls(y ~ tiempo * grupo, data = dat,
+              correlation = corIdent(form = ~ 1 | id), method = "REML")
+
+# Simetria compuesta (intercambiable)
+g_cs <- gls(y ~ tiempo * grupo, data = dat,
+             correlation = corCompSymm(form = ~ tiempo | id), method = "REML")
+
+# AR(1)
+g_ar1 <- gls(y ~ tiempo * grupo, data = dat,
+              correlation = corAR1(form = ~ tiempo | id), method = "REML")
+
+# No estructurada (corSymm), requiere tiempos como factor
+g_un <- gls(y ~ tiempo * grupo, data = dat,
+             correlation = corSymm(form = ~ as.integer(tiempo_f) | id),
+             weights = varIdent(form = ~ 1 | tiempo_f), method = "REML")
+
+data.frame(
+  estructura = c("Independencia", "Comp. simetrica", "AR(1)", "No estructurada"),
+  AIC = c(AIC(g_ind), AIC(g_cs), AIC(g_ar1), AIC(g_un)),
+  BIC = c(BIC(g_ind), BIC(g_cs), BIC(g_ar1), BIC(g_un))
+)`} />
+
+<SASAccordion title="Código SAS equivalente, estructuras de covarianza (REPEATED)" code={`/* Simetria compuesta */
+proc mixed data=longdata method=reml;
+  class id tiempo grupo;
+  model y = tiempo grupo tiempo*grupo / solution;
+  repeated tiempo / subject=id type=cs rcorr;
+run;
+
+/* AR(1) */
+proc mixed data=longdata method=reml;
+  class id tiempo grupo;
+  model y = tiempo grupo tiempo*grupo / solution;
+  repeated tiempo / subject=id type=ar(1) rcorr;
+run;
+
+/* No estructurada */
+proc mixed data=longdata method=reml;
+  class id tiempo grupo;
+  model y = tiempo grupo tiempo*grupo / solution;
+  repeated tiempo / subject=id type=un rcorr;
+run;
+
+/* Comparar AIC/BIC en "Fit Statistics" de cada ajuste */`} />
+
+<RCell id="diagnostico-dharma" title="Diagnóstico con DHARMa (residuos simulados)" code={`library(lme4)
+# El paquete DHARMa debe estar cargado en el entorno WebR
+library(DHARMa)
+
+if (!exists("dat")) {
+  set.seed(2024)
+  n_suj <- 30; n_tiempo <- 5
+  dat <- data.frame(
+    id = rep(1:n_suj, each = n_tiempo),
+    tiempo = rep(0:(n_tiempo - 1), n_suj),
+    grupo = rep(rep(c("Control", "Tratamiento"), each = n_suj / 2), each = n_tiempo)
+  )
+  b0 <- rep(rnorm(n_suj, 0, 2), each = n_tiempo)
+  efecto_trt <- ifelse(dat$grupo == "Tratamiento", -0.8, 0)
+  dat$y <- 10 + b0 + 0.5 * dat$tiempo + efecto_trt * dat$tiempo + rnorm(nrow(dat), 0, 1)
+}
+
+m3 <- lmer(y ~ tiempo * grupo + (1 + tiempo | id), data = dat, REML = TRUE)
+
+# Residuos simulados (cuantil-cuantil)
+sim_res <- simulateResiduals(m3, n = 250)
+plot(sim_res)
+
+# Pruebas formales
+print(testDispersion(sim_res))
+
+# Normalidad de los efectos aleatorios (BLUPs)
+blups <- ranef(m3)$id[, 1]
+qqnorm(blups, main = "Q-Q de interceptos aleatorios (BLUPs)")
+qqline(blups)
+print(shapiro.test(blups))`} />
+
+<SASAccordion title="Código SAS equivalente, diagnóstico de residuos" code={`proc mixed data=longdata method=reml plots=all;
+  class id grupo;
+  model y = tiempo grupo tiempo*grupo / solution outpred=pred residual;
+  random intercept tiempo / subject=id type=un;
+  ods output SolutionR=blups;
+run;
+
+/* PROC MIXED con plots=all genera graficos de residuos
+   estandarizados vs predichos y un QQ-plot de los residuos.
+   Para evaluar normalidad de los efectos aleatorios (BLUPs),
+   exportar SolutionR y aplicar PROC UNIVARIATE (normal) sobre
+   la columna Estimate. */
+proc univariate data=blups normal;
+  var Estimate;
+  qqplot Estimate / normal;
+run;`} />
+
+<RCell id="arbol-decision-gee-gamm" title="GLMM vs GEE: interpretación condicional vs marginal" code={`library(lme4)
+# Los paquetes geepack y mgcv deben estar cargados en el entorno WebR
+library(geepack)
+library(mgcv)
+
+# Datos binarios agrupados por centro (10 centros, 20 pacientes c/u)
+set.seed(99)
+n_centros <- 10
+n_pac <- 20
+centro <- rep(1:n_centros, each = n_pac)
+b_centro <- rep(rnorm(n_centros, 0, 1.2), each = n_pac)
+trt <- rep(rep(c(0, 1), each = n_pac / 2), n_centros)
+lin <- -0.5 + 1.0 * trt + b_centro
+p <- plogis(lin)
+y <- rbinom(length(p), 1, p)
+datb <- data.frame(centro = factor(centro), trt = trt, y = y,
+                    id = rep(1:n_pac, n_centros))
+
+# GLMM: efecto condicional (especifico del centro)
+m_glmm <- glmer(y ~ trt + (1 | centro), data = datb, family = binomial)
+
+# GEE: efecto marginal (poblacional), correlacion exchangeable por centro
+m_gee <- geeglm(y ~ trt, data = datb, id = centro, family = binomial,
+                 corstr = "exchangeable")
+
+cat("OR condicional (GLMM):", round(exp(fixef(m_glmm)["trt"]), 2), "\\n")
+cat("OR marginal (GEE):     ", round(exp(coef(m_gee)["trt"]), 2), "\\n")
+
+# Ejemplo rapido de GAMM para una tendencia no lineal (ilustrativo)
+set.seed(1)
+tt <- seq(0, 10, length.out = 100)
+yy <- sin(tt) + rnorm(100, 0, 0.2)
+gg <- gam(yy ~ s(tt, k = 8))
+plot(gg, main = "GAMM: tendencia suavizada")`} />
+
+<SASAccordion title="Código SAS equivalente, GLMM y GEE" code={`/* GLMM: efecto condicional especifico de centro */
+proc glimmix data=datb;
+  class centro trt;
+  model y(event='1') = trt / dist=binary link=logit solution oddsratio;
+  random intercept / subject=centro;
+run;
+
+/* GEE: efecto marginal (poblacional), correlacion exchangeable */
+proc gee data=datb;
+  class centro trt;
+  model y(event='1') = trt / dist=binomial link=logit;
+  repeated subject=centro / type=exch corrw;
+run;
+
+/* Los coeficientes de PROC GLIMMIX se interpretan condicionales al
+   centro (random intercept); los de PROC GEE se interpretan como
+   efectos marginales (poblacionales), de forma analoga a la
+   diferencia entre glmer() y geeglm() en R. */`} />
+
+<Quiz questions={[
+  {
+    question: "¿Cuándo preferirías GEE sobre GLMM para un desenlace binario repetido?",
+    options: [
+      "Cuando el interés principal es el efecto promedio poblacional (marginal) y no el efecto específico de cada sujeto.",
+      "Cuando siempre se quiere la interpretación condicional al sujeto.",
+      "GEE nunca es preferible a GLMM.",
+      "Solo cuando hay un único cluster."
+    ],
+    correctIndex: 0,
+    explanation: "GEE produce coeficientes marginales (poblacionales), robustos a la mala especificación de la correlación de trabajo, ideales cuando el foco es el efecto promedio en la población."
+  },
+  {
+    question: "Al comparar un modelo con intercepto aleatorio frente a otro con intercepto y pendiente aleatorios mediante LRT (anova en lme4), ¿qué se debe tener en cuenta?",
+    options: [
+      "Que ambos modelos deben ajustarse con ML (no REML) y que el p-valor es conservador por estar la varianza en el borde del espacio de parámetros.",
+      "Que el p-valor del LRT es siempre exacto sin importar el método de estimación.",
+      "Que REML es obligatorio para comparar efectos aleatorios mediante LRT.",
+      "Que el AIC no puede usarse en este caso."
+    ],
+    correctIndex: 0,
+    explanation: "Para comparar estructuras anidadas (efectos fijos o aleatorios) con LRT se recomienda ML; además, cuando la nula está en el límite (varianza = 0), el LRT clásico es conservador."
+  },
+  {
+    question: "¿Qué estructura de covarianza en nlme::gls equivale aproximadamente a un LMM con solo intercepto aleatorio?",
+    options: [
+      "corCompSymm (simetría compuesta / intercambiable).",
+      "corAR1.",
+      "corSymm (no estructurada).",
+      "corIdent (independencia)."
+    ],
+    correctIndex: 0,
+    explanation: "La simetría compuesta impone una correlación constante entre cualquier par de medidas dentro del sujeto, lo mismo que produce un intercepto aleatorio compartido."
+  },
+  {
+    question: "En DHARMa, ¿qué función usarías para evaluar si un GLMM Poisson presenta sobredispersión?",
+    options: [
+      "testDispersion() sobre los residuos simulados con simulateResiduals().",
+      "shapiro.test() sobre los datos crudos.",
+      "anova() entre el modelo y el modelo nulo.",
+      "plot(ranef(modelo)) únicamente."
+    ],
+    correctIndex: 0,
+    explanation: "testDispersion() aplicado al objeto devuelto por simulateResiduals() es la forma estándar de evaluar sobre/infra-dispersión en DHARMa."
+  }
+]} />

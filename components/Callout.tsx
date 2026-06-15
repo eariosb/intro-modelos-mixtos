@@ -1,7 +1,5 @@
-import type { ReactNode } from 'react';
 import clsx from 'clsx';
-
-export type CalloutType = 'tip' | 'info' | 'warning' | 'success';
+import type { CalloutType, CalloutProps } from '@/types/course';
 
 const STYLES: Record<CalloutType, { wrap: string; badge: string; icon: string; label: string }> = {
   tip: {
@@ -34,15 +32,7 @@ const STYLES: Record<CalloutType, { wrap: string; badge: string; icon: string; l
  * Inline callout box for tips, warnings, info notes and "buenas
  * prácticas" highlighted within a lesson's narrative.
  */
-export function Callout({
-  type = 'tip',
-  title,
-  children,
-}: {
-  type?: CalloutType;
-  title?: string;
-  children: ReactNode;
-}) {
+export function Callout({ type = 'tip', title, children }: CalloutProps) {
   const s = STYLES[type];
   return (
     <div className={clsx('my-6 rounded border px-4 py-3', s.wrap)}>

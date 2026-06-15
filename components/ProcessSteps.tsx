@@ -1,13 +1,10 @@
-export interface ProcessStep {
-  title: string;
-  description: string;
-}
+import type { ProcessStepsProps } from '@/types/course';
 
 /**
  * Numbered vertical step list used to lay out an analysis workflow
  * (e.g. "explorar → especificar → ajustar → diagnosticar → comparar").
  */
-export function ProcessSteps({ steps, title }: { steps: ProcessStep[]; title?: string }) {
+export function ProcessSteps({ steps, title }: ProcessStepsProps) {
   if (!steps?.length) return null;
   return (
     <section className="my-6">

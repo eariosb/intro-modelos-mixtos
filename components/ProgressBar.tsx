@@ -1,11 +1,10 @@
 'use client';
 
-import { allLessons } from '@/content/modules';
 import { useCourseProgress } from '@/hooks/useProgress';
 
 /** Slim progress bar showing overall course completion (persisted in localStorage). */
-export function ProgressBar() {
-  const { pct } = useCourseProgress(allLessons.length);
+export function ProgressBar({ totalModules }: { totalModules: number }) {
+  const { pct } = useCourseProgress(totalModules);
 
   return (
     <div className="px-4 py-2">
