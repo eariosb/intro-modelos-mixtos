@@ -36,6 +36,8 @@ declare module '@r-wasm/webr' {
 
   export interface WebROptions {
     interactive?: boolean;
+    /** URL base remota desde donde se descargan los binarios de WebR (WASM, workers, paquetes). */
+    baseUrl?: string;
     [key: string]: unknown;
   }
 

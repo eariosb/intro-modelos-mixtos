@@ -37,6 +37,11 @@ async function initWebR(): Promise<WebRType> {
   const { WebR } = await import('@r-wasm/webr');
   const webR = new WebR({
     interactive: false,
+    // Carga los binarios de WebR (WASM, workers, paquetes R) directamente
+    // desde el CDN oficial en lugar de rutas locales empaquetadas por
+    // Next.js/Webpack. Esto evita fallos de carga en producción (Vercel)
+    // donde los assets de node_modules/@r-wasm/webr no se sirven tal cual.
+    baseUrl: 'https://webr.r-wasm.org/v0.2.0/',
   });
   await webR.init();
 
