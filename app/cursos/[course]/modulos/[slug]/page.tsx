@@ -80,6 +80,13 @@ export default function ModulePage({ params }: { params: { course: string; slug:
           source={source}
           components={mdxComponents}
           options={{
+            // El contenido MDX proviene de /content (repositorio propio, confiable),
+            // no de usuarios finales. next-mdx-remote@6 bloquea por defecto las
+            // expresiones JS en MDX (blockJS: true) como medida de seguridad para
+            // contenido no confiable, lo que eliminaba props como columns={[...]}
+            // y rows={[...]} de <DataTable />. Lo desactivamos aquí.
+            blockJS: false,
+            blockDangerousJS: false,
             mdxOptions: {
               remarkPlugins: [remarkMath],
               rehypePlugins: [rehypeKatex],
