@@ -1,91 +1,112 @@
 ---
 title: "Correlaciones y varianzas heterocedásticas"
 slug: "estructuras-varianza-avanzadas"
-subtitle: "Cómo elegir la estructura de correlación y modelar varianza no constante en modelos mixtos y GEE"
+subtitle: "Estructuras de correlación complejas, heterocedasticidad y criterios de selección para modelos con medidas repetidas"
 objective:
-  - "Comparar visual y numéricamente las estructuras de correlación disponibles (simetría compuesta, AR(1), no estructurada, exponencial)."
-  - "Detectar y modelar heterocedasticidad con varIdent y varPower."
-  - "Comprender el rol de la matriz de trabajo en GEE y su impacto en la eficiencia."
-  - "Tomar decisiones informadas sobre la estructura de covarianza usando AIC, BIC y gráficos diagnósticos."
+  - "Comparar visual y numéricamente estructuras de correlación: simetría compuesta, AR(1), no estructurada y exponencial."
+  - "Detectar y modelar heterocedasticidad con varIdent y varPower en nlme."
+  - "Comprender el rol de la matriz de trabajo en modelos marginales con gls y su impacto en la eficiencia."
+  - "Tomar decisiones informadas usando AIC, BIC, gráficos de calor y gráficos de residuos."
 order: 11
 datasets:
   - "Orthodont (nlme)"
-  - "Datos simulados de biomarcadores con varianza creciente"
+  - "Datos simulados con varianza creciente"
 ---
 
 ## ¿Por qué importa la estructura de covarianza?
 
-En estudios longitudinales, las observaciones de un mismo sujeto están correlacionadas. Ignorar esa correlación no sesga los coeficientes (en modelos marginales o GEE con estimador robusto), pero sí afecta la **eficiencia**: los errores estándar pueden ser incorrectos y perdemos potencia estadística. Al modelar explícitamente la correlación y la varianza, obtenemos estimaciones más precisas y pruebas más fiables.
+En estudios longitudinales, las observaciones de un mismo sujeto están correlacionadas. Ignorar esa correlación no siempre sesga los coeficientes estimados, pero sí afecta la **eficiencia estadística**: los errores estándar pueden ser incorrectos y se pierde potencia para detectar efectos relevantes.
 
-Las dos grandes familias son:
+En `nlme` disponemos de dos herramientas complementarias:
+- **Modelos mixtos (`lme`)**: los efectos aleatorios inducen una estructura de correlación; las funciones `cor*` permiten refinarla.
+- **Modelos marginales (`gls`)**: no incluyen efectos aleatorios, pero modelan directamente la correlación y la varianza.
 
-| Enfoque | Herramienta en R | Estructura |
-|---------|------------------|------------|
-| Modelos mixtos (condicionales) | `lme` (nlme) | `corAR1`, `corCompSymm`, `corSymm`, `corExp`, etc. |
-| Modelos marginales (GEE) | `geeglm` (geepack) | `corstr = "independence"`, `"exchangeable"`, `"ar1"`, `"unstructured"` |
+Ambos enfoques son útiles y comparten las mismas funciones `cor*` y `var*`. En este módulo exploramos cuándo y cómo elegir entre las opciones disponibles.
 
-<Callout type="info" title="Modelos condicionales vs. marginales">
-  En un **modelo mixto** los efectos aleatorios inducen una estructura de correlación implícita; las funciones `cor*` permiten refinarla.  
-  En un **modelo marginal (GEE)** la correlación se modela directamente como una "estructura de trabajo". Si no es la correcta, los estimadores siguen siendo consistentes, pero la eficiencia puede caer. Elegir una buena estructura de trabajo recupera precisión.
+<Callout type="info" title="Modelos condicionales vs. marginales en nlme">
+  - `lme(random = ~ 1 | Subject, correlation = corAR1())` → modelo **condicional** con intercepto aleatorio más correlación AR(1).  
+  - `gls(correlation = corAR1())` → modelo **marginal** basado en verosimilitud, que modela la correlación sin efectos aleatorios.  
+  Ambos son válidos; la elección depende de si necesitás los BLUPs de los efectos aleatorios o solo la estimación de los efectos fijos poblacionales.
 </Callout>
 
 ---
 
-## 1. Visualización exploratoria de la correlación
+## 1. Visualización exploratoria de la correlación y la varianza
 
-Antes de elegir una estructura, conviene mirar los datos. Vamos a usar el dataset `Orthodont`, que mide la distancia (en mm) desde la pituitaria a la fisura pterigomaxilar en 27 niños y niñas a los 8, 10, 12 y 14 años.
+Antes de elegir una estructura, conviene inspeccionar los datos. Usamos `Orthodont`, que contiene medidas repetidas de distancia dental en niños y niñas a los 8, 10, 12 y 14 años.
 
-<RCell id="explorar-orthodont" title="Exploración gráfica de Orthodont" code={`library(nlme)
-library(ggplot2)
+<RCell id="explorar-orthodont" title="Spaghetti plot: trayectorias individuales" code={`library(ggplot2)
+library(nlme)
 
-# Spaghetti plot: trayectorias individuales
+# Spaghetti plot
 ggplot(Orthodont, aes(x = age, y = distance, group = Subject, color = Sex)) +
   geom_line(alpha = 0.5) +
   geom_point(size = 1.5) +
   labs(title = "Trayectorias de crecimiento dental",
+       subtitle = "Cada línea representa un sujeto",
        x = "Edad (años)", y = "Distancia (mm)") +
   theme_minimal() +
   facet_wrap(~ Sex)
+`} />
 
-# Boxplot por edad para ver dispersión
+¿Qué observamos? Las trayectorias tienden a ser crecientes, pero no todas son paralelas. Algunos sujetos parten más arriba y otros más abajo. Esto sugiere que hay **variabilidad entre sujetos** que podría modelarse con efectos aleatorios o con una estructura de correlación adecuada.
+
+<RCell id="boxplot-varianza" title="Boxplot: dispersión por edad y sexo" code={`library(ggplot2)
+library(nlme)
+
 ggplot(Orthodont, aes(x = factor(age), y = distance, fill = Sex)) +
   geom_boxplot(alpha = 0.7) +
   labs(title = "Distribución de la distancia por edad y sexo",
+       subtitle = "Buscamos cambios en la dispersión entre edades o sexos",
        x = "Edad (años)", y = "Distancia (mm)") +
   theme_minimal()
 `} />
 
-**Interpretación:**  
-- Las trayectorias tienden a ser crecientes.  
-- ¿Las varianzas son constantes a través de las edades? Los boxplots nos dan una primera pista.  
-- ¿Hay diferencias en la dispersión entre sexos? Eso sugeriría heterocedasticidad.
+Si el tamaño de las cajas cambia marcadamente entre edades o entre sexos, hay indicios de **heterocedasticidad** que convendrá modelar con funciones `var*`.
 
 ---
 
-## 2. Comparación de estructuras de correlación en LMM
+## 2. Comparación de estructuras de correlación
 
-Ajustamos varios modelos con la misma parte fija (`distance ~ age + Sex`) y diferentes estructuras de correlación. Comparamos AIC y BIC.
+Ajustamos varios modelos con `lme`, variando únicamente la estructura de correlación, y comparamos criterios de información. Usamos `method = "ML"` para que la comparación por AIC/BIC sea válida.
 
-<RCell id="comparar-correlaciones" title="Comparación de estructuras de correlación" code={`library(nlme)
+<RCell id="comparar-correlaciones" title="Ajuste de cuatro estructuras de correlación" code={`library(nlme)
 
-# Modelo base con simetría compuesta (la más simple)
-mod_cs <- lme(distance ~ age + Sex, random = ~ 1 | Subject, 
-              correlation = corCompSymm(form = ~ 1 | Subject), 
+# Simetría compuesta (correlación constante entre cualquier par de mediciones)
+mod_cs <- lme(distance ~ age + Sex, random = ~ 1 | Subject,
+              correlation = corCompSymm(form = ~ 1 | Subject),
               data = Orthodont, method = "ML")
 
-# AR(1) — correlación decrece con la separación temporal
-mod_ar1 <- lme(distance ~ age + Sex, random = ~ 1 | Subject, 
-               correlation = corAR1(form = ~ age | Subject), 
+# AR(1): la correlación decae exponencialmente con la distancia temporal
+mod_ar1 <- lme(distance ~ age + Sex, random = ~ 1 | Subject,
+               correlation = corAR1(form = ~ age | Subject),
                data = Orthodont, method = "ML")
 
-# No estructurada — cada par de tiempos tiene su propia correlación
-mod_un <- lme(distance ~ age + Sex, random = ~ 1 | Subject, 
-              correlation = corSymm(form = ~ 1 | Subject), 
+# No estructurada: cada par de tiempos tiene su propia correlación
+mod_un <- lme(distance ~ age + Sex, random = ~ 1 | Subject,
+              correlation = corSymm(form = ~ 1 | Subject),
               data = Orthodont, method = "ML")
 
-# Exponencial — decaimiento continuo con la distancia temporal
-mod_exp <- lme(distance ~ age + Sex, random = ~ 1 | Subject, 
-               correlation = corExp(form = ~ age | Subject, metric = "euclidean"), 
+# Exponencial: decaimiento continuo con la distancia temporal
+mod_exp <- lme(distance ~ age + Sex, random = ~ 1 | Subject,
+               correlation = corExp(form = ~ age | Subject, metric = "euclidean"),
+               data = Orthodont, method = "ML")
+`} />
+
+<RCell id="tabla-comparativa" title="Comparación de AIC y BIC" code={`library(nlme)
+
+# Recreamos los modelos para asegurar que están en el entorno
+mod_cs <- lme(distance ~ age + Sex, random = ~ 1 | Subject,
+              correlation = corCompSymm(form = ~ 1 | Subject),
+              data = Orthodont, method = "ML")
+mod_ar1 <- lme(distance ~ age + Sex, random = ~ 1 | Subject,
+               correlation = corAR1(form = ~ age | Subject),
+               data = Orthodont, method = "ML")
+mod_un <- lme(distance ~ age + Sex, random = ~ 1 | Subject,
+              correlation = corSymm(form = ~ 1 | Subject),
+              data = Orthodont, method = "ML")
+mod_exp <- lme(distance ~ age + Sex, random = ~ 1 | Subject,
+               correlation = corExp(form = ~ age | Subject, metric = "euclidean"),
                data = Orthodont, method = "ML")
 
 # Tabla comparativa
@@ -95,205 +116,377 @@ comparacion <- data.frame(
   BIC = round(c(BIC(mod_cs), BIC(mod_ar1), BIC(mod_un), BIC(mod_exp)), 2),
   logLik = round(c(logLik(mod_cs), logLik(mod_ar1), logLik(mod_un), logLik(mod_exp)), 2)
 )
-comparacion
+
+print(comparacion)
 `} />
 
 <Callout type="tip" title="¿Cómo elegir?">
-  - Menor AIC/BIC sugiere mejor ajuste, penalizando la complejidad.  
-  - La **no estructurada** es la más flexible, pero con muchos tiempos puede ser inestable (muchos parámetros).  
-  - **AR(1)** y **exponencial** asumen que la correlación decae con la distancia temporal — muy razonable en estudios longitudinales.  
-  - La **simetría compuesta** asume correlación constante entre cualquier par de mediciones; es simple y útil cuando los tiempos están igualmente espaciados y no hay razón para esperar decaimiento.
+  - El **menor AIC/BIC** sugiere el mejor equilibrio entre ajuste y complejidad.  
+  - La **no estructurada** es la más flexible pero con muchos tiempos se vuelve inestable (muchos parámetros que estimar).  
+  - **AR(1)** y **exponencial** asumen que la correlación decae con la distancia temporal: muy razonable en estudios longitudinales.  
+  - La **simetría compuesta** asume correlación constante entre cualquier par de mediciones; es simple y útil cuando no hay razón teórica para esperar decaimiento.
 </Callout>
 
 ---
 
-## 3. Visualización de las matrices de correlación
+## 3. Visualización de las matrices de correlación estimadas
 
-Extraemos las matrices estimadas por cada modelo para ver las diferencias en un **heatmap**.
+Extraemos las matrices de cada modelo y las visualizamos en un heatmap. Usamos `as.data.frame.table()` en lugar de `reshape2::melt` para mantener la compatibilidad con WebR.
 
-<RCell id="heatmap-correlaciones" title="Heatmap de matrices de correlación" code={`library(ggplot2)
-library(reshape2)
+<RCell id="heatmap-matrices" title="Heatmap de las matrices de correlación" code={`library(ggplot2)
+library(nlme)
 
-# Extraer matrices
+# Ajustamos los modelos con REML (más apropiado para estimación final)
+mod_cs <- lme(distance ~ age + Sex, random = ~ 1 | Subject,
+              correlation = corCompSymm(form = ~ 1 | Subject),
+              data = Orthodont, method = "REML")
+mod_ar1 <- lme(distance ~ age + Sex, random = ~ 1 | Subject,
+               correlation = corAR1(form = ~ age | Subject),
+               data = Orthodont, method = "REML")
+mod_un <- lme(distance ~ age + Sex, random = ~ 1 | Subject,
+              correlation = corSymm(form = ~ 1 | Subject),
+              data = Orthodont, method = "REML")
+mod_exp <- lme(distance ~ age + Sex, random = ~ 1 | Subject,
+               correlation = corExp(form = ~ age | Subject, metric = "euclidean"),
+               data = Orthodont, method = "REML")
+
+# Extraemos las matrices
 mat_cs <- corMatrix(mod_cs$modelStruct$corStruct)[[1]]
 mat_ar1 <- corMatrix(mod_ar1$modelStruct$corStruct)[[1]]
 mat_un <- corMatrix(mod_un$modelStruct$corStruct)[[1]]
 mat_exp <- corMatrix(mod_exp$modelStruct$corStruct)[[1]]
 
-# Función para graficar
-plot_cor_matrix <- function(mat, titulo) {
-  df <- melt(mat)
-  ggplot(df, aes(Var1, Var2, fill = value)) +
-    geom_tile(color = "white") +
-    scale_fill_gradient2(low = "steelblue", mid = "white", high = "coral",
-                         midpoint = 0.5, limit = c(0, 1)) +
-    geom_text(aes(label = round(value, 2)), size = 3) +
-    labs(title = titulo, x = "", y = "") +
-    theme_minimal() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+# Convertimos a formato largo con función base
+mat_to_long <- function(mat, name) {
+  df <- as.data.frame.table(mat, responseName = "correlation")
+  df$Modelo <- name
+  # Redondeamos para limpiar la visualización
+  df$correlation <- round(df$correlation, 3)
+  df
 }
 
-# Mostrar las cuatro matrices (ejecutar cada una para ver)
-plot_cor_matrix(mat_cs, "Simetría compuesta")
-plot_cor_matrix(mat_ar1, "AR(1)")
-plot_cor_matrix(mat_un, "No estructurada")
-plot_cor_matrix(mat_exp, "Exponencial")
+df_all <- rbind(
+  mat_to_long(mat_cs, "Simetría compuesta"),
+  mat_to_long(mat_ar1, "AR(1)"),
+  mat_to_long(mat_un, "No estructurada"),
+  mat_to_long(mat_exp, "Exponencial")
+)
+
+ggplot(df_all, aes(x = Var1, y = Var2, fill = correlation)) +
+  geom_tile(color = "white", linewidth = 0.5) +
+  geom_text(aes(label = correlation), size = 3) +
+  scale_fill_gradient2(low = "steelblue", mid = "white", high = "coral",
+                       midpoint = 0.5, limits = c(0, 1)) +
+  facet_wrap(~ Modelo, nrow = 2) +
+  labs(title = "Matrices de correlación estimadas",
+       subtitle = "Cada celda muestra la correlación estimada entre dos edades",
+       x = "Edad (años)", y = "Edad (años)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 `} />
 
-**Interpretación visual:**  
-- En **simetría compuesta**, todas las correlaciones fuera de la diagonal son iguales.  
-- En **AR(1)**, la correlación disminuye a medida que nos alejamos de la diagonal (más distancia temporal = menos correlación).  
-- En **no estructurada**, cada par de tiempos tiene un valor único.  
-- En **exponencial**, el decaimiento es más suave y continuo.
+**Interpretación de los heatmaps:**
+- En **simetría compuesta**, todas las correlaciones fuera de la diagonal son iguales (un solo valor para todos los pares).
+- En **AR(1)**, la correlación disminuye progresivamente a medida que nos alejamos de la diagonal (más distancia temporal → menos correlación).
+- En **no estructurada**, cada par de edades tiene un valor único de correlación.
+- En **exponencial**, el decaimiento es más suave y depende de una función continua.
 
 ---
 
-## 4. Modelado de heterocedasticidad
+## 4. Modelos marginales con `gls`
 
-¿Qué pasa si la varianza no es constante? Por ejemplo, si la dispersión aumenta con la edad.
+Si no necesitamos los BLUPs de los efectos aleatorios, podemos usar `gls` para modelar directamente la estructura de covarianza. Esto es conceptualmente similar a lo que hacen los modelos marginales (como GEE), pero basado en máxima verosimilitud.
 
-<RCell id="diagnostico-hetero" title="Diagnóstico visual de heterocedasticidad" code={`# Ajustamos el modelo AR(1) sin modelar varianza
-mod_ar1_reml <- lme(distance ~ age + Sex, random = ~ 1 | Subject, 
-                    correlation = corAR1(form = ~ age | Subject), 
-                    data = Orthodont, method = "REML")
+<RCell id="gls-comparacion" title="Modelo marginal con gls: comparación de estructuras" code={`library(nlme)
 
-# Gráficos de residuos
-par(mfrow = c(1, 2))
-plot(fitted(mod_ar1_reml), residuals(mod_ar1_reml, type = "pearson"),
-     main = "Residuos vs Valores ajustados",
-     xlab = "Ajustados", ylab = "Residuos Pearson")
-abline(h = 0, lty = 2, col = "red")
+# gls sin efectos aleatorios, modelando la correlación directamente
+gls_cs <- gls(distance ~ age + Sex,
+              correlation = corCompSymm(form = ~ 1 | Subject),
+              data = Orthodont, method = "ML")
+gls_ar1 <- gls(distance ~ age + Sex,
+               correlation = corAR1(form = ~ age | Subject),
+               data = Orthodont, method = "ML")
 
-# Residuos vs edad
-boxplot(residuals(mod_ar1_reml, type = "pearson") ~ Orthodont$age,
-        main = "Residuos por edad",
-        xlab = "Edad", ylab = "Residuos Pearson")
-abline(h = 0, lty = 2, col = "red")
+# Comparación con lme
+mod_ar1 <- lme(distance ~ age + Sex, random = ~ 1 | Subject,
+               correlation = corAR1(form = ~ age | Subject),
+               data = Orthodont, method = "ML")
+
+# Tabla de coeficientes
+resumen <- data.frame(
+  Modelo = c("gls AR(1)", "gls AR(1)", "gls AR(1)",
+             "lme AR(1)", "lme AR(1)", "lme AR(1)"),
+  Parámetro = rep(c("Intercepto", "age", "SexFemale"), 2),
+  Estimación = round(c(coef(gls_ar1), fixef(mod_ar1)), 3)
+)
+print(resumen)
+
+cat("\\nAIC gls AR(1):", round(AIC(gls_ar1), 2),
+    "\\nAIC lme AR(1):", round(AIC(mod_ar1), 2))
+`} />
+
+<Callout type="tip" title="¿gls o lme?">
+  - **`gls`** es un modelo marginal: estima los efectos fijos poblacionales modelando directamente la correlación, sin estimar efectos aleatorios.  
+  - **`lme`** es un modelo condicional: incluye efectos aleatorios que inducen correlación.  
+  - Si solo te interesa la inferencia poblacional y no necesitás predicciones individuales, `gls` es una alternativa parsimoniosa dentro del ecosistema `nlme`.  
+  - **GEE** (con `geepack`) es otra alternativa marginal, pero basada en ecuaciones de estimación en lugar de verosimilitud. En WebR usamos `gls` como aproximación; en tu R local, `geepack` es el estándar.
+</Callout>
+
+---
+
+## 5. Diagnóstico y modelado de heterocedasticidad
+
+¿Qué ocurre si la varianza no es constante? Por ejemplo, si la dispersión de la distancia dental cambia con la edad o difiere entre sexos.
+
+<RCell id="residuos-homocedastico" title="Gráfico de residuos del modelo homocedástico" code={`library(ggplot2)
+library(nlme)
+
+# Modelo con AR(1) sin modelar varianza
+mod_ar1 <- lme(distance ~ age + Sex, random = ~ 1 | Subject,
+               correlation = corAR1(form = ~ age | Subject),
+               data = Orthodont, method = "REML")
+
+# Extraemos residuos y valores ajustados
+diagnostico <- data.frame(
+  ajustados = fitted(mod_ar1),
+  residuos = residuals(mod_ar1, type = "pearson"),
+  edad = Orthodont$age,
+  sexo = Orthodont$Sex
+)
+
+# Residuos vs ajustados
+ggplot(diagnostico, aes(x = ajustados, y = residuos)) +
+  geom_point(size = 2, alpha = 0.6) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  geom_smooth(se = TRUE, method = "loess", color = "blue", linewidth = 1) +
+  labs(title = "Residuos de Pearson vs Valores ajustados",
+       subtitle = "¿Hay patrón de embudo? ¿La dispersión cambia con los ajustados?",
+       x = "Valores ajustados", y = "Residuos de Pearson") +
+  theme_minimal()
+`} />
+
+<RCell id="residuos-por-edad" title="Residuos agrupados por edad" code={`library(ggplot2)
+library(nlme)
+
+mod_ar1 <- lme(distance ~ age + Sex, random = ~ 1 | Subject,
+               correlation = corAR1(form = ~ age | Subject),
+               data = Orthodont, method = "REML")
+
+diagnostico <- data.frame(
+  residuos = residuals(mod_ar1, type = "pearson"),
+  edad = factor(Orthodont$age)
+)
+
+ggplot(diagnostico, aes(x = edad, y = residuos)) +
+  geom_boxplot(alpha = 0.7, fill = "gray80") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(title = "Residuos de Pearson por edad",
+       subtitle = "¿La dispersión cambia entre edades?",
+       x = "Edad (años)", y = "Residuos de Pearson") +
+  theme_minimal()
 `} />
 
 Si los residuos muestran un embudo (dispersión creciente con los valores ajustados o con la edad), conviene modelar la varianza explícitamente.
 
-<RCell id="modelar-hetero" title="Modelos con varianza heterocedástica" code={`# Varianza diferente por sexo (varIdent)
-mod_var_sex <- lme(distance ~ age + Sex, random = ~ 1 | Subject, 
+<RCell id="modelar-hetero" title="Modelos con varianza heterocedástica" code={`library(nlme)
+
+# Varianza diferente por sexo (varIdent)
+mod_var_sex <- lme(distance ~ age + Sex, random = ~ 1 | Subject,
                    correlation = corAR1(form = ~ age | Subject),
-                   weights = varIdent(form = ~ 1 | Sex), 
+                   weights = varIdent(form = ~ 1 | Sex),
                    data = Orthodont, method = "REML")
 
 # Varianza como función potencia de la edad (varPower)
-mod_var_pow <- lme(distance ~ age + Sex, random = ~ 1 | Subject, 
+mod_var_pow <- lme(distance ~ age + Sex, random = ~ 1 | Subject,
                    correlation = corAR1(form = ~ age | Subject),
-                   weights = varPower(form = ~ age), 
+                   weights = varPower(form = ~ age),
                    data = Orthodont, method = "REML")
 
-# Comparación con modelo homocedástico
-comparacion_var <- data.frame(
-  Modelo = c("Homocedástico (AR1)", "VarIdent (Sexo)", "VarPower (edad)"),
-  AIC = round(c(AIC(mod_ar1_reml), AIC(mod_var_sex), AIC(mod_var_pow)), 2),
-  BIC = round(c(BIC(mod_ar1_reml), BIC(mod_var_sex), BIC(mod_var_pow)), 2)
-)
-comparacion_var
+# Modelo homocedástico para comparar
+mod_homo <- lme(distance ~ age + Sex, random = ~ 1 | Subject,
+                correlation = corAR1(form = ~ age | Subject),
+                data = Orthodont, method = "REML")
 
-# Ver parámetros de varianza estimados
-intervals(mod_var_pow)
+# Comparación
+comparacion_var <- data.frame(
+  Modelo = c("Homocedástico", "VarIdent (Sexo)", "VarPower (edad)"),
+  AIC = round(c(AIC(mod_homo), AIC(mod_var_sex), AIC(mod_var_pow)), 2),
+  BIC = round(c(BIC(mod_homo), BIC(mod_var_sex), BIC(mod_var_pow)), 2),
+  logLik = round(c(logLik(mod_homo), logLik(mod_var_sex), logLik(mod_var_pow)), 2)
+)
+
+print(comparacion_var)
 `} />
 
-<Callout type="warning" title="Atención con la sobreparametrización">
-  Modelar la varianza añade parámetros. Si la heterocedasticidad es leve, un modelo más simple puede ser preferible. Confiá en AIC/BIC pero también en la inspección visual.
+<RCell id="parametros-varianza" title="Parámetros de varianza estimados" code={`library(nlme)
+
+mod_var_sex <- lme(distance ~ age + Sex, random = ~ 1 | Subject,
+                   correlation = corAR1(form = ~ age | Subject),
+                   weights = varIdent(form = ~ 1 | Sex),
+                   data = Orthodont, method = "REML")
+mod_var_pow <- lme(distance ~ age + Sex, random = ~ 1 | Subject,
+                   correlation = corAR1(form = ~ age | Subject),
+                   weights = varPower(form = ~ age),
+                   data = Orthodont, method = "REML")
+
+# Extraemos los parámetros de varianza
+cat("=== VarIdent (por Sexo) ===\\n")
+print(intervals(mod_var_sex)$varStruct)
+
+cat("\\n=== VarPower (por edad) ===\\n")
+print(intervals(mod_var_pow)$varStruct)
+
+cat("\\n=== Sigma (desviación estándar residual) ===\\n")
+cat("Homocedástico:", mod_var_sex$sigma, "\\n")
+`} />
+
+<Callout type="warning" title="No sobreparametrizar sin necesidad">
+  Modelar la varianza añade parámetros adicionales. Si la heterocedasticidad es leve, un modelo más simple puede ser preferible según el principio de parsimonia. Confiá en AIC/BIC, pero también en la inspección visual: ¿el patrón de residuos cambia sustancialmente al modelar la varianza?
 </Callout>
 
 ---
 
-## 5. Estructuras de trabajo en GEE
+## 6. Validación del modelo final
 
-En modelos marginales (GEE), la correlación no se modela con efectos aleatorios sino directamente como una **matriz de trabajo**. Veamos cómo afecta la elección de esta matriz usando `geepack`.
+Una vez elegida la estructura de correlación y de varianza, verificamos que los residuos ya no muestren patrones no deseados.
 
-<RCell id="gee-estructuras" title="Comparación de estructuras de trabajo en GEE" code={`library(geepack)
-library(ggplot2)
+<RCell id="validar-final" title="Residuos del modelo con heterocedasticidad modelada" code={`library(ggplot2)
+library(nlme)
 
-# Ordenamos los datos por sujeto y tiempo
-data_gee <- Orthodont[order(Orthodont$Subject, Orthodont$age), ]
+# Modelo con AR(1) y varianza por sexo
+mod_final <- lme(distance ~ age + Sex, random = ~ 1 | Subject,
+                 correlation = corAR1(form = ~ age | Subject),
+                 weights = varIdent(form = ~ 1 | Sex),
+                 data = Orthodont, method = "REML")
 
-# Ajustamos GEE con diferentes estructuras de trabajo
-gee_ind <- geeglm(distance ~ age + Sex, id = Subject, 
-                  data = data_gee, family = gaussian, corstr = "independence")
-gee_exc <- geeglm(distance ~ age + Sex, id = Subject, 
-                  data = data_gee, family = gaussian, corstr = "exchangeable")
-gee_ar1 <- geeglm(distance ~ age + Sex, id = Subject, 
-                  data = data_gee, family = gaussian, corstr = "ar1")
-
-# Tabla comparativa de coeficientes y errores estándar
-resumen <- data.frame(
-  Estructura = rep(c("Independencia", "Intercambiable", "AR(1)"), each = 3),
-  Coeficiente = rep(c("Intercepto", "age", "SexFemale"), 3),
-  Estimacion = round(c(coef(gee_ind), coef(gee_exc), coef(gee_ar1)), 4),
-  EE = round(c(summary(gee_ind)$coefficients[,2],
-               summary(gee_exc)$coefficients[,2],
-               summary(gee_ar1)$coefficients[,2]), 4)
+# Datos de diagnóstico
+diag_final <- data.frame(
+  ajustados = fitted(mod_final),
+  residuos = residuals(mod_final, type = "pearson"),
+  edad = factor(Orthodont$age),
+  sexo = Orthodont$Sex
 )
 
-print(resumen)
-
-# Gráfico comparativo de errores estándar
-library(ggplot2)
-ggplot(resumen, aes(x = Coeficiente, y = EE, fill = Estructura)) +
-  geom_bar(stat = "identity", position = position_dodge()) +
-  labs(title = "Errores estándar según estructura de trabajo (GEE)",
-       y = "Error estándar robusto") +
+# Residuos vs ajustados
+ggplot(diag_final, aes(x = ajustados, y = residuos, color = sexo)) +
+  geom_point(size = 2, alpha = 0.6) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  geom_smooth(se = TRUE, method = "loess", color = "black", linewidth = 1) +
+  labs(title = "Residuos de Pearson vs Valores ajustados",
+       subtitle = "Modelo con AR(1) + varIdent por Sexo",
+       x = "Valores ajustados", y = "Residuos de Pearson",
+       color = "Sexo") +
   theme_minimal()
 `} />
 
-**Observación clave:**  
-Los coeficientes estimados son muy similares (GEE es consistente aunque la estructura de trabajo esté mal especificada). Sin embargo, los **errores estándar** varían. Una mejor aproximación a la correlación real produce errores estándar más pequeños (mayor eficiencia).
+<RCell id="qqplot-final" title="Q-Q plot de residuos" code={`library(ggplot2)
+library(nlme)
 
-<Callout type="tip" title="Recomendación práctica">
-  - Si el número de sujetos es grande y los tiempos son pocos, usá **no estructurada** (`corstr = "unstructured"`).  
-  - Si los tiempos son muchos, preferí **intercambiable** o **AR(1)** para evitar estimar demasiados parámetros de correlación.  
-  - La estructura de **independencia** es la más robusta pero la menos eficiente; útil como análisis de sensibilidad.
-</Callout>
+mod_final <- lme(distance ~ age + Sex, random = ~ 1 | Subject,
+                 correlation = corAR1(form = ~ age | Subject),
+                 weights = varIdent(form = ~ 1 | Sex),
+                 data = Orthodont, method = "REML")
+
+residuos <- residuals(mod_final, type = "pearson")
+
+ggplot(data.frame(residuos = residuos), aes(sample = residuos)) +
+  stat_qq(size = 2, alpha = 0.6) +
+  stat_qq_line(color = "red", linewidth = 1) +
+  labs(title = "Q-Q plot de residuos de Pearson",
+       subtitle = "Evaluamos normalidad de los residuos",
+       x = "Cuantiles teóricos", y = "Cuantiles muestrales") +
+  theme_minimal()
+`} />
+
+---
+
+## 7. Flujo de decisión recomendado
+
+<ProcessSteps
+  steps={[
+    {
+      step: 1,
+      title: "Explorar los datos",
+      description: "Spaghetti plots, boxplots por tiempo y grupo. Detectar visualmente correlación entre mediciones y posibles cambios en la dispersión."
+    },
+    {
+      step: 2,
+      title: "Elegir estructura de correlación",
+      description: "Ajustar modelos con CS, AR(1), UN y Exponencial. Comparar AIC/BIC. Visualizar las matrices de correlación estimadas con heatmaps."
+    },
+    {
+      step: 3,
+      title: "Diagnosticar heterocedasticidad",
+      description: "Inspeccionar residuos de Pearson vs. ajustados y vs. covariables (edad, grupo). Si hay patrón de embudo, proceder al paso 4."
+    },
+    {
+      step: 4,
+      title: "Modelar la varianza",
+      description: "Probar varIdent (grupos), varPower o varExp (covariables continuas). Comparar AIC/BIC con el modelo homocedástico."
+    },
+    {
+      step: 5,
+      title: "Validar el modelo final",
+      description: "Verificar que los residuos ya no muestren patrones. Q-Q plot para evaluar normalidad. Reportar la estructura elegida y justificarla."
+    }
+  ]}
+/>
 
 ---
 
 ## Flashcard
 
-**Pregunta:** ¿Qué estructura de varianza usarías si notas que la varianza de la respuesta crece con el tiempo?
+**Pregunta:** ¿Qué estructura de varianza usarías si notás que la varianza de la respuesta crece sistemáticamente con el tiempo?
 
-**Respuesta:** `varPower` (o `varExp`) para modelar la varianza como función de una covariable continua como el tiempo. También podrías usar `varIdent` si querés estimar varianzas distintas para cada nivel de un factor.
+**Respuesta:** `varPower` o `varExp` dentro de `lme()` o `gls()`. Ambas permiten modelar la varianza como una función continua de una covariable (como la edad o el tiempo). `varPower` asume que la desviación estándar es proporcional a una potencia de la covariable; `varExp` asume que crece o decrece exponencialmente.
 
-**Pregunta:** En GEE, ¿perderemos la consistencia de los estimadores si elegimos mal la estructura de trabajo?
+**Pregunta:** En un modelo con `corAR1`, ¿qué significa un valor de φ (phi) cercano a 0.9?
 
-**Respuesta:** No. Los estimadores de GEE son consistentes (insesgados en muestras grandes) aunque la estructura de trabajo esté mal especificada, gracias al estimador sándwich robusto. Pero la **eficiencia** (precisión) puede verse afectada.
+**Respuesta:** φ es el parámetro de autocorrelación de AR(1). Un valor de 0.9 indica que las mediciones adyacentes en el tiempo están muy fuertemente correlacionadas (correlación de 0.9), y esa correlación decae a medida que aumenta la distancia temporal: corr(t, t+2) = 0.9² = 0.81, corr(t, t+3) = 0.9³ ≈ 0.73, etc.
+
+---
+
+## Referencias académicas
+
+| Referencia | Contribución |
+|------------|--------------|
+| Pinheiro, J. & Bates, D. (2000). *Mixed-Effects Models in S and S-PLUS*. Springer. | Texto de referencia para `nlme`. Cubre exhaustivamente las estructuras de correlación y varianza. |
+| Diggle, P. J., Heagerty, P., Liang, K.-Y. & Zeger, S. L. (2002). *Analysis of Longitudinal Data* (2nd ed.). Oxford University Press. | Texto canónico para datos longitudinales. Discute la elección de estructuras de covarianza. |
+| Fitzmaurice, G. M., Laird, N. M. & Ware, J. H. (2011). *Applied Longitudinal Analysis* (2nd ed.). Wiley. | Aplicaciones en salud con énfasis en diagnóstico y selección de modelos. |
+| Verbeke, G. & Molenberghs, G. (2000). *Linear Mixed Models for Longitudinal Data*. Springer. | Referencia completa sobre LMM, incluyendo diagnóstico y estructuras de covarianza. |
+| Zuur, A. F. et al. (2009). *Mixed Effects Models and Extensions in Ecology with R*. Springer. | Excelente guía práctica para selección de estructuras con ejemplos en R. |
 
 ---
 
 ## Quiz
 
 <Quiz
-  question="Un investigador tiene datos de presión arterial medidos en 4 visitas igualmente espaciadas. Sospecha que la correlación entre mediciones disminuye a medida que las visitas están más separadas en el tiempo. ¿Qué estructura de correlación recomendarías probar primero?"
+  question="Un investigador estudia la evolución de un biomarcador medido en 5 visitas igualmente espaciadas. Sospecha que la correlación entre dos mediciones disminuye a medida que las visitas están más separadas en el tiempo. ¿Qué estructura de correlación probarías primero?"
   options={[
     { text: "Simetría compuesta (corCompSymm)", correct: false },
     { text: "AR(1) o Exponencial (corAR1 / corExp)", correct: true },
     { text: "No estructurada (corSymm)", correct: false },
-    { text: "Independencia", correct: false },
+    { text: "Independencia (sin correlación)", correct: false }
   ]}
-  explanation="AR(1) y Exponencial modelan justamente ese decaimiento de la correlación con la distancia temporal. La simetría compuesta asume correlación constante entre cualquier par de visitas, y la no estructurada no impone esa restricción pero es más costosa en parámetros."
+  explanation="AR(1) y Exponencial modelan justamente el decaimiento de la correlación con la distancia temporal. La simetría compuesta asume correlación constante entre cualquier par de visitas, lo cual no refleja la sospecha del investigador. La no estructurada es más flexible pero no impone la estructura de decaimiento que se espera."
 />
 
 <Quiz
-  question="En un modelo GEE con respuesta gaussiana, cambiás la estructura de trabajo de 'independencia' a 'intercambiable'. ¿Qué esperás que ocurra con los coeficientes estimados y sus errores estándar?"
+  question="Después de ajustar un modelo mixto con AR(1), notás que los residuos de Pearson muestran un patrón de embudo (la dispersión aumenta con los valores ajustados). ¿Qué acción tomás?"
   options={[
-    { text: "Los coeficientes cambian drásticamente y los errores estándar también.", correct: false },
-    { text: "Los coeficientes apenas cambian, pero los errores estándar pueden reducirse.", correct: true },
-    { text: "Los coeficientes se vuelven inconsistentes.", correct: false },
-    { text: "No cambia nada porque GEE siempre da los mismos resultados.", correct: false },
+    { text: "Cambiar a simetría compuesta para corregirlo", correct: false },
+    { text: "Agregar un peso con varPower o varExp y comparar AIC/BIC", correct: true },
+    { text: "Ignorarlo porque AR(1) ya corrige la correlación", correct: false },
+    { text: "Eliminar los efectos aleatorios del modelo", correct: false }
   ]}
-  explanation="GEE es consistente independientemente de la estructura de trabajo. Los coeficientes permanecen casi idénticos. Pero si la estructura de trabajo se acerca más a la correlación real, los errores estándar serán menores (mayor eficiencia)."
+  explanation="El patrón de embudo es señal de heterocedasticidad, no de mala especificación de la correlación. Cambiar la estructura de correlación no resuelve el problema. La solución correcta es modelar explícitamente la varianza con funciones varPower, varExp o varIdent, y comparar con el modelo homocedástico mediante AIC/BIC."
 />
 
 ---
 
 ## Código SAS de referencia
 
-<SASAccordion title="Alternativa en SAS: comparación de estructuras" code={`* Modelos mixtos con distintas estructuras de correlación en PROC MIXED *;
+<SASAccordion title="Alternativa en SAS: estructuras de correlación y varianza" code={`* Comparación de estructuras de correlación en PROC MIXED *;
 
 * Simetría compuesta (CS) *;
 proc mixed data=orthodont method=ml;
@@ -323,61 +516,26 @@ proc mixed data=orthodont method=ml;
   repeated age / subject=Subject type=sp(pow)(age) rcorr;
 run;
 
-* Heterocedasticidad por sexo *;
+* Heterocedasticidad por sexo con AR(1) *;
 proc mixed data=orthodont method=reml;
   class Subject Sex;
   model distance = age Sex / solution;
   repeated age / subject=Subject type=ar(1) group=Sex;
 run;
-
-* GEE con distintas estructuras de trabajo (PROC GENMOD) *;
-proc genmod data=orthodont;
-  class Subject Sex;
-  model distance = age Sex / dist=normal;
-  repeated subject=Subject / type=exch corrw;  * Intercambiable *;
-run;
-
-proc genmod data=orthodont;
-  class Subject Sex;
-  model distance = age Sex / dist=normal;
-  repeated subject=Subject / within=age type=ar corrw;  * AR(1) *;
-run;
 `} />
 
 ---
 
-## Resumen gráfico del flujo de decisión
+## Resumen: tabla comparativa de estructuras
 
-<ProcessSteps
-  steps={[
-    {
-      step: 1,
-      title: "Explorar los datos",
-      description: "Spaghetti plots, boxplots por tiempo, gráficos de residuos para detectar patrones de correlación y heterocedasticidad."
-    },
-    {
-      step: 2,
-      title: "Elegir estructura de correlación",
-      description: "Ajustar varios modelos (CS, AR1, UN, Exp) y comparar AIC/BIC. Visualizar las matrices de correlación estimadas con heatmaps."
-    },
-    {
-      step: 3,
-      title: "Diagnosticar heterocedasticidad",
-      description: "Inspeccionar residuos vs. ajustados y residuos vs. covariables. Si hay patrón de embudo, modelar con varIdent o varPower."
-    },
-    {
-      step: 4,
-      title: "Validar el modelo final",
-      description: "Comparar el modelo con y sin estructura de varianza. Usar AIC/BIC y verificar que los residuos ya no muestren patrones."
-    },
-    {
-      step: 5,
-      title: "En GEE, elegir matriz de trabajo",
-      description: "Recordar que la consistencia se mantiene, pero la eficiencia mejora con una estructura cercana a la real. Comparar errores estándar entre opciones."
-    }
-  ]}
-/>
+| Estructura | Función en R (nlme) | Cuándo usarla |
+|------------|---------------------|----------------|
+| **Simetría compuesta** | `corCompSymm()` | Correlación constante entre cualquier par de mediciones. Simple y robusta. |
+| **AR(1)** | `corAR1()` | La correlación decae con la distancia temporal. Ideal para datos longitudinales con tiempo discreto. |
+| **No estructurada** | `corSymm()` | Cada par de tiempos tiene su propia correlación. Flexible pero costosa en parámetros. |
+| **Exponencial** | `corExp()` | Decaimiento continuo de la correlación con la distancia temporal. Útil con tiempos irregulares. |
+| **Varianza constante** | (por defecto) | Asume homocedasticidad. Punto de partida antes de diagnosticar. |
+| **varIdent** | `varIdent(form = ~ 1 \| grupo)` | Varianza diferente para cada nivel de un factor (ej. sexo, tratamiento). |
+| **varPower** | `varPower(form = ~ covariable)` | La desviación estándar es proporcional a una potencia de la covariable. |
 
----
-
-Con estas herramientas, ahora podés tomar decisiones informadas sobre la estructura de covarianza en tus análisis longitudinales, respaldadas tanto por criterios numéricos como por visualizaciones claras.
+Con estas herramientas, ahora podés elegir y justificar la estructura de covarianza más adecuada para tus datos longitudinales, respaldando cada decisión con criterios numéricos y visualizaciones claras.
