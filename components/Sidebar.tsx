@@ -5,10 +5,9 @@ import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import clsx from 'clsx';
 import type { ModuleEntry } from '@/types/course';
+import { COURSE_SLUG } from '@/lib/constants';
 import { ProgressBar } from './ProgressBar';
 import { Logo } from './layout/Logo';
-
-const COURSE_SLUG = 'modelos-mixtos';
 
 function SidebarContent({ modules, onNavigate }: { modules: ModuleEntry[]; onNavigate?: () => void }) {
   const pathname = usePathname();

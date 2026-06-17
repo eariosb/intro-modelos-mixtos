@@ -1,8 +1,7 @@
 import Link from 'next/link';
 import { getAllModules } from '@/lib/courses';
 import { AppLayout } from '@/components/AppLayout';
-
-const COURSE_SLUG = 'modelos-mixtos';
+import { COURSE_SLUG } from '@/lib/constants';
 
 export default function HomePage() {
   const modules = getAllModules();

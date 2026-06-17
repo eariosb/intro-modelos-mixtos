@@ -316,6 +316,5 @@ comerciales y bajo la misma licencia.
 - **Facultad de Ciencias · Departamento de Estadística**
 - **Año:** 2026
 
-Agradecimientos al material de referencia clásico de modelos mixtos (Pinheiro
-& Bates, Verbeke & Molenberghs, West, Welch & Galecki, entre otros) que inspira
-los ejemplos y la progresión pedagógica de este curso.
+Agradecimientos por supuesto a (Juan Carlos Salazar & Juan Carlos correa) por su libro escrito en conjunto, el material compartido y
+las discusiones en clases del Departamento de Estadística de la Universidad Nacional de colombia, sede Medellin, como también al material de referencia de (Pinheiro & Bates, Verbeke & Molenberghs, West, Welch & Galecki, entre otros) que inspiran el contenido, orden y los ejemplos y la progresión pedagógica de este curso.
