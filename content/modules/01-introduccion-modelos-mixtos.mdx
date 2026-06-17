@@ -6,85 +6,331 @@ objective:
   - "Reconocer datos longitudinales y de medidas repetidas."
   - "Distinguir entre efectos fijos y efectos aleatorios."
   - "Entender por qué el modelo de regresión lineal clásico falla con datos correlacionados."
-  - "Escribir la notación matricial general de un modelo lineal mixto."
-  - "Identificar ejemplos aplicados (crecimiento, salud, agronomía)."
+  - "Escribir la notación general de un modelo lineal mixto."
+  - "Formular preguntas exploratorias a partir de estadísticos descriptivos y gráficos."
 order: 1
 datasets:
   - "sleepstudy (lme4)"
 ---
 
-## Motivación
+## Motivación: cuando las observaciones no son independientes
 
-Muchas preguntas de investigación requieren observar **el mismo sujeto, parcela o unidad varias veces** a lo largo del tiempo (datos longitudinales) o agrupar observaciones dentro de unidades superiores (datos jerárquicos / anidados: estudiantes dentro de colegios, árboles dentro de bloques, pacientes dentro de hospitales).
+En investigación clínica y experimental es común medir **la misma variable varias veces sobre el mismo individuo**:
+pacientes evaluados en distintas visitas, árboles medidos cada mes, estudiantes examinados en cuatro momentos del
+semestre. Estos diseños generan datos **correlacionados**: dos mediciones del mismo sujeto se parecen más entre sí
+que dos mediciones de sujetos distintos.
 
-En estos diseños, las observaciones **no son independientes**: dos mediciones del mismo sujeto suelen parecerse más entre sí que dos mediciones de sujetos distintos. El modelo de regresión lineal clásico
+El modelo de regresión lineal clásico
 
 $$
 y_i = \mathbf{x}_i^\top \boldsymbol{\beta} + \varepsilon_i, \qquad \varepsilon_i \overset{iid}{\sim} N(0,\sigma^2)
 $$
 
-asume independencia entre los $\varepsilon_i$. Si la ignoramos, los errores estándar quedan mal calculados y las pruebas de hipótesis pierden validez.
+asume independencia entre los errores $\varepsilon_i$. Si ignoramos la correlación, los errores estándar de los
+coeficientes se estiman incorrectamente y las pruebas de hipótesis pierden validez.
 
-## La idea central: efectos fijos y efectos aleatorios
+**Un modelo mixto** está diseñado para manejar esta dependencia de forma explícita.
 
-Un **modelo mixto** combina dos tipos de efectos:
+## Efectos fijos y efectos aleatorios
 
-- **Efectos fijos** ($\boldsymbol{\beta}$): describen la relación promedio de la población, lo que normalmente nos interesa estimar e interpretar (p. ej. el efecto de un tratamiento).
-- **Efectos aleatorios** ($\mathbf{b}_i$): capturan la **desviación específica de cada unidad** (sujeto, grupo, parcela) respecto al promedio poblacional. No se interpretan individualmente, sino a través de su varianza.
+Un modelo mixto combina dos tipos de efectos:
 
-La forma general de un modelo lineal mixto para el sujeto $i$ con $n_i$ observaciones es:
+- **Efectos fijos ($\boldsymbol{\beta}$)**: describen la relación **promedio** en la población. Son los que habitualmente
+  nos interesa estimar e interpretar (por ejemplo, el efecto del tiempo, la diferencia entre grupos).
+- **Efectos aleatorios ($\mathbf{b}_i$)**: capturan las **desviaciones individuales** de cada sujeto respecto al
+  promedio poblacional. Se modelan como variables aleatorias y nos interesan principalmente a través de su
+  **variabilidad** (¿cuánto difieren las trayectorias entre sujetos?).
+
+<Callout type="info" title="Analogía: notas a lo largo del semestre">
+  Imaginá un curso con 30 estudiantes y 4 exámenes.
+
+  - El **efecto fijo** sería la tendencia promedio de las notas a lo largo del tiempo.
+  - Los **efectos aleatorios** reflejan que algunos estudiantes parten de un nivel más alto (intercepto aleatorio)
+    y otros mejoran más rápido (pendiente aleatoria).
+
+  El modelo estima la curva promedio y reconoce que cada estudiante tiene su propia trayectoria.
+</Callout>
+
+## Notación del modelo lineal mixto
+
+Para el sujeto $i$ con $n_i$ observaciones:
 
 $$
-\mathbf{y}_i = \mathbf{X}_i \boldsymbol{\beta} + \mathbf{Z}_i \mathbf{b}_i + \boldsymbol{\varepsilon}_i,
-\qquad \mathbf{b}_i \sim N(\mathbf{0}, \mathbf{D}), \qquad \boldsymbol{\varepsilon}_i \sim N(\mathbf{0}, \mathbf{R}_i)
+\mathbf{y}_i = \mathbf{X}_i \boldsymbol{\beta} + \mathbf{Z}_i \mathbf{b}_i + \boldsymbol{\varepsilon}_i
 $$
 
-donde $\mathbf{X}_i$ y $\mathbf{Z}_i$ son las matrices de diseño de efectos fijos y aleatorios, $\mathbf{D}$ es la matriz de covarianzas entre efectos aleatorios y $\mathbf{R}_i$ la covarianza intra-sujeto (a menudo $\sigma^2 \mathbf{I}$).
+con
 
-> **Idea clave:** los efectos aleatorios "absorben" la correlación intra-sujeto, dejando que los efectos fijos describan la tendencia poblacional de forma correcta.
+$$
+\mathbf{b}_i \sim N(\mathbf{0}, \mathbf{D}), \qquad \boldsymbol{\varepsilon}_i \sim N(\mathbf{0}, \mathbf{R}_i)
+$$
 
-## Un primer vistazo con datos reales
+- $\mathbf{X}_i$, $\mathbf{Z}_i$: matrices de diseño para efectos fijos y aleatorios.
+- $\mathbf{D}$: varianza de los efectos aleatorios (varianza de interceptos, pendientes y su correlación).
+- $\mathbf{R}_i$: estructura de covarianza residual intra‑sujeto; por defecto $\sigma^2 \mathbf{I}$, pero puede
+  modelar autocorrelación o heterocedasticidad.
 
-El dataset `sleepstudy` (incluido en el paquete `lme4`) registra el **tiempo de reacción** de 18 sujetos sometidos a privación de sueño durante 10 días. Cada sujeto se midió varias veces, el escenario clásico de medidas repetidas.
+> Los efectos aleatorios "absorben" la correlación intra-sujeto, permitiendo que $\boldsymbol{\beta}$ describa la
+> tendencia poblacional de forma correcta.
 
-Ejecuta la celda siguiente para explorar la estructura de los datos y ver cómo cada sujeto tiene su propia trayectoria (intercepto y pendiente propios).
+---
 
-<RCell id="sleepstudy-explore" title="Explorar el dataset sleepstudy" code={`# El dataset sleepstudy viene incluido en lme4
-library(lme4)
-library(ggplot2)
+## Análisis exploratorio: `sleepstudy`
+
+El dataset `sleepstudy` (paquete `lme4`) contiene el **tiempo de reacción** (ms) de 18 sujetos durante 10 días
+consecutivos de restricción de sueño. Es el ejemplo canónico de medidas repetidas en la literatura de modelos mixtos
+(Bates et al., 2015, *Journal of Statistical Software*).
+
+### Estructura y balance
+
+<RCell id="sleepstudy-str" title="Estructura del dataset" code={`library(lme4)
+library(dplyr)
 
 data(sleepstudy)
-str(sleepstudy)
-head(sleepstudy, 10)
 
-# Cada Subject tiene 10 mediciones de Reaction a lo largo de Days
+# Dimensiones y tipos
+str(sleepstudy)
+
+# Balance: observaciones por sujeto
 table(sleepstudy$Subject)`} />
 
-<SASAccordion title="Lectura y exploración de datos longitudinales" code={`/* Lectura de datos longitudinales tipo "panel" */
-DATA sleepstudy;
-  INFILE 'sleepstudy.csv' DELIMITER=',' FIRSTOBS=2;
-  INPUT Reaction Days Subject;
-RUN;
+**Lo que revela la estructura:**
 
-/* Vista preliminar: una fila por sujeto-dia */
-PROC PRINT DATA=sleepstudy(OBS=10);
-RUN;
+- 180 observaciones en total: 18 sujetos × 10 días (diseño balanceado).
+- `Days` va de 0 (línea base) a 9.
+- `Subject` es un factor con 18 niveles (identificadores numéricos).
+- Diseño balanceado: cada sujeto aporta exactamente 10 mediciones, lo que simplifica el análisis.
 
-/* Conteo de mediciones por sujeto: confirma el diseño balanceado */
-PROC FREQ DATA=sleepstudy;
-  TABLES Subject;
-RUN;`} />
+### Preguntas que guían el análisis exploratorio
 
-<RCell id="sleepstudy-spaghetti" title="Gráfico de perfiles individuales (spaghetti plot)" code={`library(ggplot2)
+<Callout type="info" title="Antes de ajustar cualquier modelo, formulá estas preguntas">
+  1. ¿Hay una tendencia general de `Reaction` con `Days`?
+  2. ¿Todos los sujetos siguen una trayectoria similar, o hay diferencias marcadas en el punto de partida (intercepto)?
+  3. ¿Algunos sujetos se deterioran más rápido que otros (pendiente heterogénea)?
+  4. ¿La variabilidad dentro de cada día aumenta, se mantiene constante o decrece?
+  5. ¿Hay sujetos con valores anómalos que podrían influir en los resultados?
+</Callout>
 
-# Cada línea es un sujeto: observa cómo varían intercepto y pendiente
-ggplot(sleepstudy, aes(x = Days, y = Reaction, group = Subject, color = Subject)) +
-  geom_line(alpha = 0.6) +
-  geom_point(size = 1) +
+### Estadísticos descriptivos por día
+
+<RCell id="summary-by-day" title="Media, SD, mediana y rango por día" code={`library(dplyr)
+
+sleepstudy |>
+  group_by(Days) |>
+  summarise(
+    n        = n(),
+    media    = round(mean(Reaction), 1),
+    sd       = round(sd(Reaction), 1),
+    mediana  = round(median(Reaction), 1),
+    cv_pct   = round(sd(Reaction) / mean(Reaction) * 100, 1),
+    min      = round(min(Reaction), 1),
+    max      = round(max(Reaction), 1)
+  ) |>
+  print(n = Inf)`} />
+
+**Qué observar en la tabla:**
+
+- La **media** sube casi linealmente: de ~257 ms en el día 0 a ~351 ms en el día 9 (≈ +10 ms/día).
+- La **SD** también crece con los días (de ~32 ms a ~67 ms). Esto es una señal de **heterocedasticidad**:
+  la variabilidad entre sujetos se amplía conforme aumenta el deterioro, posiblemente porque algunos sujetos
+  son más resistentes al efecto de la privación.
+- El **coeficiente de variación** (CV = SD/media) aumenta de ~12 % el día 0 a ~19 % el día 9, confirmando
+  que la dispersión relativa también crece.
+- No se observan mínimos ni máximos extremos; el rango es coherente con tiempos de reacción humanos normales.
+
+### Comparativa entre sujetos: correlación individual Días → Reacción
+
+Una forma directa de cuantificar la heterogeneidad es calcular la correlación de Pearson entre `Days` y
+`Reaction` **dentro de cada sujeto**. Si todos los sujetos tuvieran la misma pendiente, las correlaciones serían
+similares.
+
+<RCell id="per-subject-cor" title="Correlación Days–Reaction por sujeto" code={`library(dplyr)
+
+sleepstudy |>
+  group_by(Subject) |>
+  summarise(
+    cor_dias_reaccion = round(cor(Days, Reaction), 3),
+    pendiente_aprox   = round(coef(lm(Reaction ~ Days))[2], 2)
+  ) |>
+  arrange(pendiente_aprox) |>
+  print(n = Inf)`} />
+
+**Interpretación:**
+
+- Casi todos los sujetos muestran correlaciones positivas fuertes (> 0.8), confirmando la tendencia general.
+- Sin embargo, la **pendiente individual** varía considerablemente: algunos sujetos se deterioran ~5 ms/día
+  mientras que otros lo hacen a >20 ms/día.
+- Esta heterogeneidad en pendientes justifica incluir un **efecto aleatorio de pendiente** en el modelo,
+  no solo de intercepto.
+
+---
+
+## Visualización de las trayectorias
+
+### Spaghetti plot: panorama general
+
+El gráfico de espagueti muestra la evolución de cada sujeto y el promedio poblacional en un solo panel.
+
+<RCell id="spaghetti-plot" title="Trayectorias individuales + tendencia promedio" code={`library(ggplot2)
+
+ggplot(sleepstudy, aes(x = Days, y = Reaction, group = Subject)) +
+  geom_line(alpha = 0.35, linewidth = 0.5, color = "steelblue") +
+  geom_point(alpha = 0.35, size = 1.0, color = "steelblue") +
+  # Tendencia promedio poblacional
+  stat_summary(aes(group = 1), fun = mean,
+               geom = "line", color = "firebrick", linewidth = 1.4,
+               linetype = "solid") +
+  stat_summary(aes(group = 1), fun = mean,
+               geom = "point", color = "firebrick", size = 2.5) +
+  scale_x_continuous(breaks = 0:9) +
   labs(
-    title = "Tiempo de reaccion por sujeto a lo largo de 10 dias",
-    x = "Dias de privacion de sueno",
-    y = "Tiempo de reaccion (ms)"
+    title    = "Tiempo de reacción durante 10 días de privación de sueño",
+    subtitle = "Líneas azules = sujetos individuales · Línea roja = media poblacional",
+    x        = "Días de privación de sueño",
+    y        = "Tiempo de reacción (ms)",
+    caption  = "Fuente: sleepstudy, paquete lme4 (Belenky et al., 2003)"
   ) +
-  theme_minimal() +
-  theme(legend.position = "none")`} />
+  theme_minimal(base_size = 12) +
+  theme(panel.grid.minor = element_blank())`} />
+
+**Qué observar:**
+
+- La línea roja (media) sube de forma aproximadamente lineal: el efecto fijo de `Days` es robusto.
+- Los sujetos no son paralelos: algunos parten más altos (intercepto aleatorio), otros suben más rápido
+  (pendiente aleatoria).
+- Hay al menos un sujeto con trayectoria casi plana, lo que contrastaría con otros de pendiente pronunciada.
+
+### Rejilla de perfiles individuales (facet por sujeto)
+
+Ver cada sujeto en su propio panel revela los patrones que el spaghetti plot superpone.
+
+<RCell id="facet-subjects" title="Perfil de cada sujeto — rejilla 3 × 6" code={`library(ggplot2)
+
+ggplot(sleepstudy, aes(x = Days, y = Reaction)) +
+  geom_line(color = "steelblue", linewidth = 0.7) +
+  geom_point(color = "steelblue", size = 1.5) +
+  # Regresión lineal individual: diagnostica linearidad por sujeto
+  geom_smooth(method = "lm", se = FALSE,
+              color = "firebrick", linewidth = 0.6, linetype = "dashed") +
+  facet_wrap(~ Subject, ncol = 6) +
+  scale_x_continuous(breaks = c(0, 3, 6, 9)) +
+  labs(
+    title    = "Trayectoria de cada sujeto (azul) con tendencia lineal (rojo)",
+    subtitle = "La heterogeneidad de pendientes e interceptos justifica los efectos aleatorios",
+    x        = "Días",
+    y        = "Reacción (ms)"
+  ) +
+  theme_minimal(base_size = 10) +
+  theme(
+    strip.text       = element_text(size = 8, face = "bold"),
+    panel.grid.minor = element_blank()
+  )`} />
+
+**Qué observar en la rejilla:**
+
+- Los **interceptos** (posición en el día 0) varían mucho: hay sujetos que inician en ~200 ms y otros en ~300 ms.
+- Las **pendientes** también varían: algunas líneas rojas son casi horizontales, otras muy inclinadas.
+- Unos pocos sujetos tienen residuos no lineales (la recta no ajusta bien), lo que puede considerarse al
+  especificar estructuras de covarianza más flexibles en módulos posteriores.
+- Esta es la evidencia visual directa que motiva el modelo de intercepto **y** pendiente aleatoria.
+
+### Distribución por día: boxplot con puntos
+
+<RCell id="boxplot-by-day" title="Distribución de Reaction por día" code={`library(ggplot2)
+
+ggplot(sleepstudy, aes(x = factor(Days), y = Reaction)) +
+  geom_boxplot(fill = "steelblue", alpha = 0.25,
+               outlier.shape = NA, width = 0.5) +
+  geom_jitter(width = 0.15, alpha = 0.5, size = 1.4,
+              color = "steelblue") +
+  # Línea que conecta las medianas para ver la tendencia central
+  stat_summary(aes(group = 1), fun = median,
+               geom = "line", color = "firebrick",
+               linewidth = 0.9, linetype = "dashed") +
+  labs(
+    title    = "Distribución del tiempo de reacción por día",
+    subtitle = "Caja = IQR · Bigotes = 1.5×IQR · Línea roja = mediana",
+    x        = "Día de privación de sueño",
+    y        = "Tiempo de reacción (ms)"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(panel.grid.minor = element_blank())`} />
+
+**Lo que revela este gráfico:**
+
+- Las **cajas se elevan** día a día: la mediana sube consistentemente.
+- Las **cajas se agrandan** a partir del día 5, reflejando el incremento de la SD que vimos en la tabla.
+- La línea roja de medianas traza una curva casi lineal, sin inflexiones evidentes.
+- Los puntos individuales muestran que la dispersión intra-día es real (no hay empaquetamiento cerca de la mediana).
+
+---
+
+## ¿Por qué la regresión clásica no es suficiente?
+
+Si ajustáramos `lm(Reaction ~ Days)` ignorando que los datos están agrupados por sujeto, los 180 puntos se
+tratarían como independientes. Esto **subestima los errores estándar** del coeficiente de `Days` y produce
+valores p artificialmente pequeños.
+
+<RCell id="lm-vs-lmer" title="Comparación: regresión clásica vs modelo mixto" code={`library(lme4)
+
+# Modelo clásico (ignora la estructura de sujeto)
+fit_lm <- lm(Reaction ~ Days, data = sleepstudy)
+
+# Modelo mixto: intercepto y pendiente aleatorios por sujeto
+fit_lmer <- lmer(Reaction ~ Days + (Days | Subject), data = sleepstudy)
+
+# Comparación de estimaciones del efecto de Days
+cat("=== Regresión clásica ===\n")
+summary(fit_lm)$coefficients
+
+cat("\n=== Modelo mixto (efectos fijos) ===\n")
+summary(fit_lmer)$coefficients`} />
+
+**Qué comparar:**
+
+- El coeficiente de `Days` será similar en ambos (~10.5 ms/día) porque el estimador puntual no cambia mucho.
+- El **error estándar** de `Days` es mayor en el modelo mixto: el modelo clásico infraestima la incertidumbre
+  porque trata 180 observaciones dependientes como si fueran 180 independientes.
+- El **valor t** del modelo mixto es más conservador y más honesto sobre la evidencia disponible.
+- La varianza de los efectos aleatorios en el modelo mixto cuantifica exactamente la heterogeneidad que
+  vimos en los gráficos.
+
+<Callout type="warning" title="Pseudoreplicación">
+  Tratar 180 observaciones de 18 sujetos como 180 puntos independientes infla el tamaño de muestra efectivo.
+  En realidad, la información independiente viene de los 18 sujetos, no de las 180 mediciones. El modelo mixto
+  estima correctamente cuánta información "nueva" aporta cada medición adicional dentro de un sujeto.
+</Callout>
+
+---
+
+## Resumen de hallazgos exploratorios
+
+| Pregunta | Hallazgo |
+|---|---|
+| ¿Tendencia con el tiempo? | Sí, lineal creciente (~10 ms/día en promedio) |
+| ¿Interceptos heterogéneos? | Sí, rango ~200–310 ms en el día 0 |
+| ¿Pendientes heterogéneas? | Sí, rango ~2–25 ms/día entre sujetos |
+| ¿Heterocedasticidad? | Indicios: SD aumenta de 32 a 67 ms con los días |
+| ¿Valores atípicos? | No evidentes; distribución razonablemente simétrica |
+| ¿Modelo adecuado? | LMM con intercepto y pendiente aleatoria |
+
+---
+
+<Flashcards title="Conceptos clave del módulo" items={[
+  {
+    front: "¿Cuál es la diferencia entre efecto fijo y efecto aleatorio?",
+    back: "El efecto fijo describe la relación promedio en la población (p. ej., el efecto de Days sobre Reaction). El efecto aleatorio captura cuánto se desvía cada sujeto de ese promedio; nos interesa por su varianza, no por cada valor individual."
+  },
+  {
+    front: "¿Por qué la regresión clásica falla con medidas repetidas?",
+    back: "Asume independencia entre todas las observaciones. En medidas repetidas, las observaciones de un mismo sujeto están correlacionadas, lo que subestima los errores estándar y produce pruebas de hipótesis anticonservadoras."
+  },
+  {
+    front: "¿Qué indica la heterogeneidad de pendientes en el spaghetti plot?",
+    back: "Que los sujetos no se deterioran al mismo ritmo: la pendiente de Days sobre Reaction varía entre individuos. Esto justifica incluir un efecto aleatorio de pendiente en el modelo, además del intercepto aleatorio."
+  },
+  {
+    front: "¿Qué es el coeficiente de variación (CV) y por qué importa en EDA longitudinal?",
+    back: "CV = SD/media × 100 %. Si el CV aumenta con el tiempo (como en sleepstudy), la variabilidad relativa crece: los sujetos divergen progresivamente. Esto puede señalar heterocedasticidad o una interacción entre el tiempo y las diferencias individuales."
+  }
+]} />
