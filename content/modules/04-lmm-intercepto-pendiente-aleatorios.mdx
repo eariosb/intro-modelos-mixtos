@@ -1,16 +1,16 @@
 ---
-title: "LMM sobre trayectorias de crecimiento — SPRUCE1"
-slug: "lmm-intercepto-pendiente-aleatorios"
+title: LMM sobre trayectorias de crecimiento - ej. SPRUCE1
+slug: lmm-intercepto-pendiente-aleatorios
 subtitle: "Construcción progresiva del LMM: de la regresión clásica al modelo con intercepto y pendiente aleatorios."
 objective:
-  - "Construir el LMM de forma progresiva, añadiendo un componente a la vez y justificando cada inclusión."
+  - Construir el LMM de forma progresiva, añadiendo un componente a la vez y justificando cada inclusión.
   - "Interpretar en contexto cada parámetro del modelo: efectos fijos, varianzas aleatorias y covarianza."
-  - "Entender qué aporta y qué coste tiene cada componente del modelo (datos + parsimonia)."
-  - "Calcular e interpretar el ICC en presencia de una estructura de grupo."
-  - "Comparar modelos anidados con LRT, AIC y BIC para elegir la estructura más adecuada."
+  - Entender qué aporta y qué coste tiene cada componente del modelo (datos + parsimonia).
+  - Calcular e interpretar el ICC en presencia de una estructura de grupo.
+  - Comparar modelos anidados con LRT, AIC y BIC para elegir la estructura más adecuada.
 order: 4
 datasets:
-  - "SPRUCE1 (crecimiento de abetos Sitka — Control vs Ozono)"
+  - SPRUCE1 (crecimiento de abetos Sitka — Control vs Ozono)
 ---
 
 ## Estrategia: construcción progresiva
@@ -18,36 +18,47 @@ datasets:
 El principio rector de este módulo es **añadir complejidad solo cuando los datos y la teoría lo justifican**.
 Comenzamos con el modelo más simple posible y añadimos componentes uno a uno, verificando en cada paso si la
 adición mejora el ajuste de forma sustancial. Al final del módulo habremos construido cuatro modelos anidados
-y podremos decidir cuál es el más apropiado para los datos de SPRUCE1.
+y podremos decidir cuál es el más apropiado para los datos de SPRUCE1, siguiendo la filosofía de análisis
+iterativo recomendada por **Fitzmaurice, Laird y Ware (2011, cap. 8)** y **Correa y Salazar (2025, cap. 5)**.
 
-<ProcessSteps steps={[
-  {
-    title: "M0 — Referencia: regresión lineal clásica",
-    description: "Ignora la estructura de árboles (pseudo-replicación). Útil solo para cuantificar cuánto mejoran los modelos mixtos."
-  },
-  {
-    title: "M1 — LMM con intercepto aleatorio",
-    description: "Reconoce que cada árbol tiene su propio nivel basal. Los perfiles son paralelas desplazadas verticalmente."
-  },
-  {
-    title: "M2 — LMM con intercepto y pendiente aleatorios",
-    description: "Reconoce además que cada árbol crece a su propio ritmo. Los perfiles pueden divergir."
-  },
-  {
-    title: "M3 — M2 con interacción grupo × tiempo",
-    description: "Añade la pregunta científica central: ¿el ozono modifica la tasa de crecimiento?"
-  }
-]} />
+<ProcessSteps
+  steps={[
+    {
+      title: "M0: Referencia: regresión lineal clásica",
+      description:
+        "Ignora la estructura de árboles (pseudo‑replicación). Útil solo para cuantificar cuánto mejoran los modelos mixtos."
+    },
+    {
+      title: "M1: LMM con intercepto aleatorio",
+      description:
+        "Reconoce que cada árbol tiene su propio nivel basal. Los perfiles son paralelos desplazados verticalmente."
+    },
+    {
+      title: "M2: LMM con intercepto y pendiente aleatorios",
+      description:
+        "Reconoce además que cada árbol crece a su propio ritmo. Los perfiles pueden divergir."
+    },
+    {
+      title: "M3: M2 con interacción grupo × tiempo",
+      description:
+        "Añade la pregunta científica central: ¿el ozono modifica la tasa de crecimiento?"
+    }
+  ]}
+/>
 
 ---
 
 ## Datos y preparación
 
-<RCell id="spruce-prep" title="Cargar SPRUCE1, auditar y centrar el tiempo" code={`library(lme4)
+<RCell
+  id="spruce-prep"
+  title="Cargar SPRUCE1, auditar, centrar y explorar visualmente"
+  code={`library(lme4)
 library(nlme)
 library(ggplot2)
 library(dplyr)
 
+# ── 1. Cargar datos ──────────────────────────────────────────────
 spruce <- read.csv(
   "https://raw.githubusercontent.com/jcsalazaru/datasets/main/SPRUCE1.csv"
 )
@@ -60,29 +71,101 @@ spruce <- spruce |>
     time_c = time1 - mean(time1)
   )
 
-# Auditar estructura y balance
-cat("--- Tiempos disponibles ---\n")
+# ── 2. Auditar estructura y balance ──────────────────────────────
+cat("=== Estructura del dataset ===\\n")
+str(spruce)
+cat("\\n=== Dimensiones ===\\n")
+dim(spruce)
+cat("\\n=== Tiempos disponibles (días) ===\\n")
 sort(unique(spruce$time1))
-
-cat("\n--- Árboles por grupo ---\n")
+cat("\\n=== Árboles por grupo ===\\n")
 spruce |> distinct(ID, Group) |> count(Group)
+cat("\\n=== Mediciones por árbol (¿balance?) ===\\n")
+spruce |> count(ID) |> summary()
+cat("\\n=== Resumen de log_growth por grupo ===\\n")
+spruce |>
+  group_by(Group) |>
+  summarise(
+    n_obs     = n(),
+    n_arboles = n_distinct(ID),
+    media     = round(mean(log_growth), 3),
+    sd        = round(sd(log_growth), 3),
+    min       = round(min(log_growth), 3),
+    max       = round(max(log_growth), 3)
+  )
 
-cat("\n--- Mediciones por árbol (balance) ---\n")
-spruce |> count(ID) |> summary()`} />
+# ── 3. Spaghetti plot: trayectorias individuales ─────────────────
+# Cada línea es un árbol; revela heterogeneidad en intercepto y pendiente
+ggplot(spruce, aes(x = time1, y = log_growth, group = ID, colour = Group)) +
+  geom_line(alpha = 0.6, linewidth = 0.5) +
+  geom_point(alpha = 0.4, size = 0.8) +
+  facet_wrap(~ Group) +
+  labs(
+    title = "Trayectorias individuales de crecimiento (SPRUCE1)",
+    x = "Tiempo (días)", y = "log(crecimiento)",
+    colour = "Grupo"
+  ) +
+  theme_minimal(base_size = 12)
+
+# ── 4. Boxplot por tiempo y grupo ────────────────────────────────
+# Muestra la dispersión transversal en cada ocasión
+ggplot(spruce, aes(x = factor(time1), y = log_growth, fill = Group)) +
+  geom_boxplot(alpha = 0.7) +
+  labs(
+    title = "Distribución de log_growth por ocasión y grupo",
+    x = "Tiempo (días)", y = "log(crecimiento)"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# ── 5. ICC crudo (sin modelo) ────────────────────────────────────
+# Varianza entre árboles / varianza total a partir de medias por árbol
+medias_arbol <- spruce |>
+  group_by(ID) |>
+  summarise(media_i = mean(log_growth))
+
+var_between <- var(medias_arbol$media_i)
+var_total  <- var(spruce$log_growth)
+icc_crudo  <- var_between / var_total
+
+cat("\\n=== ICC crudo (aproximación) ===\\n")
+cat("Varianza entre árboles:", round(var_between, 4), "\\n")
+cat("Varianza total:        ", round(var_total, 4), "\\n")
+cat("ICC crudo:             ", round(icc_crudo, 4), "\\n")
+cat("\\nInterpretación: un ICC alto (> 0.4) indica que una fracción\\n")
+cat("sustancial de la variabilidad se debe a diferencias entre árboles,\\n")
+cat("lo que justifica incluir un intercepto aleatorio (M1).\\n")`}
+/>
+
+**Cómo leer la salida:**
+
+- **Estructura del dataset**: `str()` confirma que `ID` y `Group` son factores y que `time_c` es numérica.
+  Verifique que el número de observaciones coincide con `n_árboles × n_tiempos` (datos balanceados).
+- **Spaghetti plot**: si las líneas son aproximadamente paralelas pero desplazadas verticalmente, la
+  heterogeneidad es principalmente de **intercepto** (M1 será suficiente). Si las líneas divergen o se
+  cruzan, hay heterogeneidad de **pendiente** y se justifica M2.
+- **Boxplot por tiempo**: la dispersión constante a lo largo del tiempo sugiere que una varianza residual
+  homogénea ($\sigma^2$) es razonable. Si la dispersión cambia, podría necesitarse una estructura de
+  varianza residual (Módulo 11).
+- **ICC crudo**: un valor alto (> 0.4) indica que una fracción sustancial de la variabilidad se debe a
+  diferencias entre árboles, lo que justifica incluir un intercepto aleatorio (M1). Un ICC cercano a 0
+  sugeriría que el agrupamiento aporta poco.
 
 **Por qué centrar el tiempo:**
 
 Sin centrado, el intercepto $\beta_0$ representa el valor esperado de `log_growth` cuando `time1 = 0`, que
 puede estar fuera del rango de los datos y no tiene interpretación práctica. Con `time_c = time1 − mean(time1)`,
 el intercepto corresponde al punto **medio del estudio**, mucho más informativo y con mejor comportamiento
-numérico del optimizador.
+numérico del optimizador. **Correa y Salazar (2025, cap. 4)** recomiendan esta práctica para mejorar la
+interpretabilidad y reducir la correlación entre los estimadores de los efectos fijos.
 
 ---
 
-## M0 — Referencia: regresión lineal clásica
+## M0: Referencia: regresión lineal clásica
 
 Este modelo es **estadísticamente incorrecto** para datos con medidas repetidas, pero es necesario como punto
-de referencia para cuantificar el sesgo que introduce ignorar la estructura de agrupamiento.
+de referencia para cuantificar el sesgo que introduce ignorar la estructura de agrupamiento, un paso que
+**Fitzmaurice et al. (2011, p. 187)** consideran didácticamente útil.
 
 $$
 \text{log\_growth}_{ij} = \beta_0 + \beta_1\,\text{time\_c}_{ij} + \beta_2\,\text{Group}_i
@@ -90,7 +173,10 @@ $$
 \quad \varepsilon_{ij} \overset{iid}{\sim} N(0,\sigma^2)
 $$
 
-<RCell id="m0-lm" title="M0: regresión clásica (solo para referencia)" code={`# M0: OLS — ignora que los árboles aportan múltiples observaciones
+<RCell
+  id="m0-lm"
+  title="M0: regresión clásica (solo para referencia)"
+  code={`# M0: OLS - ignora que los árboles aportan múltiples observaciones
 M0 <- lm(log_growth ~ time_c * Group, data = spruce)
 
 summary(M0)
@@ -106,7 +192,8 @@ spruce |>
   summarise(
     media_cor = mean(cor_serial),
     sd_cor    = sd(cor_serial)
-  )`} />
+  )`}
+/>
 
 **Qué evidencia el diagnóstico:**
 
@@ -119,13 +206,14 @@ spruce |>
 
 <Callout type="warning" title="M0 no debe usarse para inferencia">
   El modelo M0 produce coeficientes similares a los mixtos, pero sus errores estándar están subestimados
-  porque trata 79 × 13 observaciones como si fueran independientes. Sus p-valores son demasiado pequeños
-  y sus intervalos de confianza demasiado estrechos.
+  porque trata 79 × 13 observaciones como si fueran independientes. Sus p‑valores son demasiado pequeños
+  y sus intervalos de confianza demasiado estrechos. Esta es la razón por la que los modelos mixtos se
+  han vuelto estándar en el análisis de datos longitudinales (Fitzmaurice et al., 2011, cap. 1).
 </Callout>
 
 ---
 
-## M1 — LMM con intercepto aleatorio
+## M1: LMM con intercepto aleatorio
 
 ### Qué añade M1 respecto a M0
 
@@ -143,15 +231,22 @@ $$
 b_{0i} \sim N(0, \tau_0^2), \qquad \varepsilon_{ij} \sim N(0,\sigma^2)
 $$
 
-**Lo que resuelve:** absorbe la correlación intra-árbol debida a diferencias basales, produciendo errores
+**Lo que resuelve:** absorbe la correlación intra‑árbol debida a diferencias basales, produciendo errores
 estándar de los efectos fijos más honestos.
 
 **Lo que supone:** todos los árboles crecen **al mismo ritmo** (misma pendiente $\beta_1 + \beta_3$); solo
 difieren en su punto de partida.
 
+**Correa y Salazar (2025, cap. 5)** señalan que el modelo de solo intercepto aleatorio suele ser un excelente
+punto de partida, y que su simplicidad facilita la comunicación de resultados cuando la heterogeneidad en las
+pendientes es pequeña.
+
 ### Código R y SAS
 
-<RCell id="m1-ri" title="M1: LMM con intercepto aleatorio por árbol" code={`library(lme4)
+<RCell
+  id="m1-ri"
+  title="M1: LMM con intercepto aleatorio por árbol"
+  code={`library(lme4)
 
 M1 <- lmer(
   log_growth ~ time_c * Group + (1 | ID),
@@ -167,12 +262,15 @@ tau0_sq  <- vc[vc$grp == "ID",       "vcov"]
 sigma_sq <- vc[vc$grp == "Residual", "vcov"]
 
 cat(sprintf(
-  "\nICC = %.3f  (%.1f%% de la varianza total es entre árboles)\n",
+  "\\nICC = %.3f  (%.1f%% de la varianza total es entre árboles)\\n",
   tau0_sq / (tau0_sq + sigma_sq),
   100 * tau0_sq / (tau0_sq + sigma_sq)
-))`} />
+))`}
+/>
 
-<SASAccordion title="M1 en SAS PROC MIXED" code={`/* M1: intercepto aleatorio por árbol */
+<SASAccordion
+  title="M1 en SAS PROC MIXED"
+  code={`/* M1: intercepto aleatorio por árbol */
 PROC MIXED DATA=spruce METHOD=REML COVTEST;
   CLASS id group;
   MODEL log_growth = time_c group time_c*group / SOLUTION DDFM=KENWARDROGER;
@@ -182,7 +280,8 @@ PROC MIXED DATA=spruce METHOD=REML COVTEST;
 RUN;
 
 /* Para calcular ICC: tau0^2 / (tau0^2 + sigma^2)
-   Los valores aparecen en la tabla "Covariance Parameter Estimates" */`} />
+   Los valores aparecen en la tabla "Covariance Parameter Estimates" */`}
+/>
 
 **Cómo interpretar el ICC de M1:**
 
@@ -194,13 +293,14 @@ RUN;
 
 ---
 
-## M2 — LMM con intercepto y pendiente aleatorios
+## M2: LMM con intercepto y pendiente aleatorios
 
 ### Qué añade M2 respecto a M1
 
 M2 reconoce que los árboles no solo difieren en su punto de partida sino también en **su tasa de crecimiento**
 ($b_{1i}$). En el Módulo 2, el gráfico de rejilla individual mostraba que las pendientes de las líneas de
-tendencia de cada árbol eran distintas; este modelo formaliza esa observación.
+tendencia de cada árbol eran distintas; este modelo formaliza esa observación, en la línea de lo propuesto por
+**Fitzmaurice et al. (2011, cap. 8)**.
 
 $$
 \text{log\_growth}_{ij} = \underbrace{(\beta_0 + b_{0i})}_{\text{intercepto individual}}
@@ -219,11 +319,16 @@ $$
 la variabilidad en los tiempos finales (donde los árboles están más dispersos).
 
 **Lo que cuesta:** añade dos parámetros ($\tau_1^2$ y $\tau_{01}$), y puede tener problemas de convergencia
-si hay pocos árboles o pocas mediciones.
+si hay pocos árboles o pocas mediciones. **Correa y Salazar (2025, cap. 5)** recomiendan examinar el gráfico de
+BLUPs de intercepto contra pendiente para juzgar si la correlación es sustantiva y si la Variante B está
+justificada.
 
 ### Código R y SAS
 
-<RCell id="m2-rs" title="M2: LMM con intercepto y pendiente aleatorios" code={`library(lme4)
+<RCell
+  id="m2-rs"
+  title="M2: LMM con intercepto y pendiente aleatorios"
+  code={`library(lme4)
 
 M2 <- lmer(
   log_growth ~ time_c * Group + (time_c | ID),
@@ -239,9 +344,12 @@ VarCorr(M2)
 # Efectos aleatorios por árbol (BLUPs: b0i y b1i)
 ranef_M2 <- as.data.frame(ranef(M2)$ID)
 names(ranef_M2) <- c("b0i_intercepto", "b1i_pendiente")
-head(ranef_M2, 10)`} />
+head(ranef_M2, 10)`}
+/>
 
-<SASAccordion title="M2 en SAS PROC MIXED (TYPE=UN)" code={`/* M2: intercepto y pendiente aleatorios, covarianza libre (UN = Unstructured) */
+<SASAccordion
+  title="M2 en SAS PROC MIXED (TYPE=UN)"
+  code={`/* M2: intercepto y pendiente aleatorios, covarianza libre (UN = Unstructured) */
 PROC MIXED DATA=spruce METHOD=REML COVTEST;
   CLASS id group;
   MODEL log_growth = time_c group time_c*group / SOLUTION DDFM=KENWARDROGER;
@@ -254,26 +362,27 @@ RUN;
 /* Si desea forzar correlacion = 0 entre intercepto y pendiente:
 RANDOM INTERCEPT / SUBJECT=id TYPE=VC;
 RANDOM time_c    / SUBJECT=id TYPE=VC;
-*/`} />
+*/`}
+/>
 
 ### Cómo leer la sección de efectos aleatorios de M2
 
 Supongamos que la salida muestra:
 
-```
+consola R
 Random effects:
- Groups   Name        Variance Std.Dev. Corr
- ID       (Intercept) 0.0842   0.290
-          time_c      0.0003   0.017    0.31
- Residual             0.0241   0.155
-```
+Groups Name Variance Std.Dev. Corr
+ID (Intercept) 0.0842 0.290
+time_c 0.0003 0.017 0.31
+Residual 0.0241 0.155
 
-| Componente | Valor | Interpretación |
-|---|---|---|
-| τ₀² = 0.0842 | Var. entre árboles del intercepto | En el punto central del estudio, los árboles difieren en ±2×0.29 = ±0.58 unidades de log(tamaño) |
-| τ₁² = 0.0003 | Var. entre árboles de la pendiente | Las tasas de crecimiento varían en ±2×0.017 unidades/día entre árboles |
-| ρ₀₁ = 0.31 | Correlación intercepto-pendiente | Los árboles que parten más grandes tienden a crecer ligeramente más rápido (correlación positiva) |
-| σ² = 0.0241 | Varianza residual intra-árbol | Variabilidad no explicada dentro de cada trayectoria individual |
+
+| Componente      | Valor                           | Interpretación                                                                                                             |
+| --------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| τ₀² = 0.0842    | Var. entre árboles del intercepto | En el punto central del estudio, los árboles difieren en ±2×0.29 = ±0.58 unidades de log(tamaño)                          |
+| τ₁² = 0.0003    | Var. entre árboles de la pendiente | Las tasas de crecimiento varían en ±2×0.017 unidades/día entre árboles                                                     |
+| ρ₀₁ = 0.31      | Correlación intercepto‑pendiente  | Los árboles que parten más grandes tienden a crecer ligeramente más rápido (correlación positiva)                           |
+| σ² = 0.0241     | Varianza residual intra‑árbol     | Variabilidad no explicada dentro de cada trayectoria individual                                                            |
 
 **La correlación $\rho_{01}$** tiene implicación práctica: si es positiva en este estudio, los árboles más
 grandes en el punto medio también tienen mayor tasa de crecimiento. Si el ozono reduce más el crecimiento en
@@ -284,7 +393,10 @@ captura a nivel promedio.
 
 ## Comparación de M0, M1 y M2
 
-<RCell id="compare-m0-m2" title="Comparar los tres modelos: AIC, BIC y LRT" code={`library(lme4)
+<RCell
+  id="compare-m0-m2"
+  title="Comparar los tres modelos: AIC, BIC y LRT"
+  code={`library(lme4)
 
 # Refit todos con ML para comparación de efectos fijos (M0 ya es ML)
 M0_ml <- lm(log_growth ~ time_c * Group, data = spruce)
@@ -298,15 +410,16 @@ M2_ml <- lmer(log_growth ~ time_c * Group + (time_c | ID),
 # Tabla de AIC / BIC / log-verosimilitud
 anova(M1_ml, M2_ml)  # LRT entre M1 y M2 (mismos efectos fijos)
 
-cat("\n--- AIC y BIC ---\n")
+cat("\\n--- AIC y BIC ---\\n")
 AIC(M1_ml, M2_ml)
 BIC(M1_ml, M2_ml)
 
 # Para referencia visual:
 cat(sprintf(
-  "\n AIC(M0_ml) = %.1f | AIC(M1_ml) = %.1f | AIC(M2_ml) = %.1f\n",
+  "\\n AIC(M0_ml) = %.1f | AIC(M1_ml) = %.1f | AIC(M2_ml) = %.1f\\n",
   AIC(M0_ml), AIC(M1_ml), AIC(M2_ml)
-))`} />
+))`}
+/>
 
 **Cómo leer la comparación:**
 
@@ -314,18 +427,22 @@ cat(sprintf(
   y debe incluirse.
 - Si BIC(M1) < BIC(M2) pero AIC(M2) < AIC(M1), el BIC favorece parsimonia. En ese caso, consulte la
   teoría: si hay buenas razones para esperar heterogeneidad de pendientes (el ozono puede afectar de forma
-  diferencial a cada árbol), retenga M2.
+  diferencial a cada árbol), retenga M2. Esta es la postura defendida por **Fitzmaurice et al. (2011, p. 210)**,
+  quienes insisten en que los criterios estadísticos deben complementarse con el conocimiento del dominio.
 - AIC(M1) casi siempre será mucho menor que AIC(M0): esto confirma cuantitativamente que ignorar la estructura
   de árbol (M0) produce un ajuste peor.
 
 ---
 
-## M3 — Interpretación del modelo completo con interacción
+## M3: Interpretación del modelo completo con interacción
 
 M3 es M2 con el énfasis puesto en la **pregunta científica central**: ¿el ozono cambia la tasa de crecimiento
 de los árboles comparado con el control?
 
-<RCell id="m3-full" title="M3: modelo completo con interacción grupo × tiempo" code={`library(lme4)
+<RCell
+  id="m3-full"
+  title="M3: modelo completo con interacción grupo × tiempo"
+  code={`library(lme4)
 library(lmerTest)  # para p-valores de efectos fijos
 
 M3 <- lmerTest::lmer(
@@ -334,31 +451,36 @@ M3 <- lmerTest::lmer(
   REML = TRUE
 )
 
-summary(M3)`} />
+summary(M3)`}
+/>
 
 ### Interpretación sistemática de los efectos fijos
 
 Supongamos estos coeficientes (ajuste a los valores reales al ejecutar el código):
 
-| Coeficiente | Notación | Interpretación en contexto |
-|---|---|---|
-| (Intercept) $\beta_0$ | Media del grupo Control en el punto central del tiempo | log(tamaño) promedio de un árbol Control en `mean(time1)` |
-| time_c $\beta_1$ | Tasa de crecimiento del grupo Control | Por cada día adicional, el grupo Control aumenta $\beta_1$ unidades de log(tamaño) |
-| GroupOzone $\beta_2$ | Diferencia de nivel entre grupos en el punto central | Los árboles Ozone tienen, en promedio, $\beta_2$ más/menos de log(tamaño) que Control en `mean(time1)` |
-| time_c:GroupOzone $\beta_3$ | Diferencia de tasa de crecimiento | El ozono modifica la pendiente temporal en $\beta_3$ unidades/día respecto al control |
+| Coeficiente               | Notación                                          | Interpretación en contexto                                                                                       |
+| ------------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| (Intercept) $\beta_0$   | Media del grupo Control en el punto central del tiempo | log(tamaño) promedio de un árbol Control en `mean(time1)`                                                  |
+| time_c $\beta_1$        | Tasa de crecimiento del grupo Control              | Por cada día adicional, el grupo Control aumenta $\beta_1$ unidades de log(tamaño)                             |
+| GroupOzone $\beta_2$    | Diferencia de nivel entre grupos en el punto central | Los árboles Ozone tienen, en promedio, $\beta_2$ más/menos de log(tamaño) que Control en `mean(time1)`       |
+| time_c:GroupOzone $\beta_3$ | Diferencia de tasa de crecimiento              | El ozono modifica la pendiente temporal en $\beta_3$ unidades/día respecto al control                          |
 
 <Callout type="info" title="Cómo leer la interacción">
   Si $\beta_3 < 0$ y significativo: los árboles bajo ozono crecen **más despacio** que los controles (el
   ozono inhibe el crecimiento de forma progresiva). Si $\beta_3 \approx 0$: el ozono desplaza el nivel basal
   (efecto de grupo, $\beta_2$) pero no cambia la tasa. Si $\beta_3 > 0$: el ozono acelera el crecimiento
-  (posible efecto fertilizante en bajas concentraciones).
+  (posible efecto fertilizante en bajas concentraciones). Esta lectura es consistente con las recomendaciones
+  de **Fitzmaurice et al. (2011, cap. 5)** para interacciones en modelos longitudinales.
 </Callout>
 
 ---
 
 ## Visualización del modelo ajustado
 
-<RCell id="m3-viz" title="Trayectorias individuales ajustadas vs curva poblacional" code={`library(lme4)
+<RCell
+  id="m3-viz"
+  title="Trayectorias individuales ajustadas vs curva poblacional"
+  code={`library(lme4)
 library(ggplot2)
 library(dplyr)
 
@@ -405,7 +527,8 @@ ggplot() +
     color    = "Grupo"
   ) +
   theme_minimal(base_size = 12) +
-  theme(panel.grid.minor = element_blank(), legend.position = "bottom")`} />
+  theme(panel.grid.minor = element_blank(), legend.position = "bottom")`}
+/>
 
 **Qué leer en este gráfico:**
 
@@ -421,7 +544,12 @@ ggplot() +
 
 <DataTable
   caption="Costo–beneficio de cada componente del modelo"
-  columns={["Componente", "Qué aporta al modelo", "Qué cuesta (parsimonia)", "Señal que lo justifica"]}
+  columns={[
+    "Componente",
+    "Qué aporta al modelo",
+    "Qué cuesta (parsimonia)",
+    "Señal que lo justifica"
+  ]}
   rows={[
     [
       "Intercepto aleatorio (τ₀²)",
@@ -460,9 +588,13 @@ ggplot() +
 
 ## Verificar la distribución de los efectos aleatorios
 
-Una forma de validar la especificación es verificar que los BLUPs estimados son aproximadamente normales.
+Una forma de validar la especificación es verificar que los BLUPs estimados son aproximadamente normales,
+práctica sugerida por **Correa y Salazar (2025, cap. 5)** y por la tradición de diagnóstico en modelos mixtos.
 
-<RCell id="check-ranef" title="Distribución de los efectos aleatorios estimados (BLUPs)" code={`library(lme4)
+<RCell
+  id="check-ranef"
+  title="Distribución de los efectos aleatorios estimados (BLUPs)"
+  code={`library(lme4)
 library(ggplot2)
 
 M3 <- lmer(log_growth ~ time_c * Group + (time_c | ID),
@@ -499,74 +631,24 @@ p3 <- ggplot(blups, aes(x = intercepto, y = pendiente)) +
        y = "Pendiente aleatoria (b₁ᵢ)") +
   theme_minimal()
 
-# Mostrar los tres (instala patchwork si es necesario)
-# library(patchwork); (p1 | p2) / p3
+# Mostrar los gráficos
 p1
 p2
-p3`} />
+p3`}
+/>
 
 **Qué buscar:**
 
 - **QQ-plot del intercepto**: los puntos deben seguir la línea diagonal. Desviaciones en las colas indican
   asimetría en la distribución de niveles basales, lo que podría sugerir que algunos árboles son atípicos.
-- **QQ-plot de la pendiente**: similar. Recuerde que con pocos árboles el QQ-plot tiene poca potencia;
+- **QQ-plot de la pendiente**: similar. Recuerde que con pocos árboles el QQ‑plot tiene poca potencia;
   las desviaciones moderadas no son preocupantes.
 - **Scatter b₀ᵢ vs b₁ᵢ**: la pendiente de la recta de regresión visualiza $\hat\rho_{01}$. Si la nube es
   circular, la covarianza es cercana a cero y podría usarse la Variante C (Módulo 3).
 
 ---
 
-<Flashcards title="Conceptos del módulo 4" items={[
-  {
-    front: "¿Por qué centrar el tiempo antes de ajustar el modelo?",
-    back: "Para que el intercepto tenga sentido práctico (valor esperado en el punto medio del estudio) y para reducir la correlación numérica entre β₀ y β₁, lo que mejora la estabilidad del optimizador y la interpretabilidad."
-  },
-  {
-    front: "¿Qué indica una correlación ρ₀₁ negativa entre intercepto y pendiente aleatorios?",
-    back: "Que los árboles (o sujetos) que parten de un nivel más alto tienden a cambiar más lentamente, es decir, hay convergencia de trayectorias. Los que parten bajo crecen más rápido, acercándose a los demás."
-  },
-  {
-    front: "¿Cuál es la diferencia entre la predicción 'individual' (fitted) y la predicción 'poblacional' (re.form=NA)?",
-    back: "La predicción individual incluye los BLUPs (b₀ᵢ + b₁ᵢ) de cada árbol, estimando su trayectoria específica. La predicción poblacional usa solo β̂ y describe la trayectoria promedio de un árbol 'típico' del grupo."
-  },
-  {
-    front: "Si el LRT entre M1 y M2 no es significativo pero la teoría sugiere pendientes distintas, ¿qué hacer?",
-    back: "Quedarse con M2. La teoría tiene prioridad sobre la significación estadística, especialmente cuando hay pocos sujetos (baja potencia para detectar τ₁²). Reportar ambos modelos y discutir la elección."
-  }
-]} />
+## Referencias del módulo
 
-<Quiz questions={[
-  {
-    question: "En el modelo M3, el coeficiente time_c:GroupOzone = −0.003 (p = 0.01). ¿Cuál es la interpretación correcta?",
-    options: [
-      "Los árboles de ozono tienen, en el punto medio del estudio, 0.003 menos de log_growth que los controles",
-      "Por cada día adicional, los árboles de ozono crecen 0.003 unidades menos (en log) que los controles",
-      "La varianza de la pendiente aleatoria en el grupo Ozone es 0.003",
-      "El intercepto del grupo Ozone es 0.003 unidades menor que el del Control"
-    ],
-    correctIndex: 1,
-    explanation: "time_c:GroupOzone es la diferencia de pendiente entre grupos: por día adicional, Ozone cambia β₁ + β₃ = β₁ − 0.003, es decir, crece 0.003 unidades por día menos que Control. Es la interacción grupo × tiempo."
-  },
-  {
-    question: "Un árbol del grupo Control tiene b₀ᵢ = +0.25 y b₁ᵢ = −0.005. ¿Cómo se interpreta?",
-    options: [
-      "Este árbol parte 0.25 unidades por encima del promedio del grupo y crece 0.005 unidades por día más lento que el promedio",
-      "El grupo Control tiene un intercepto de 0.25 y una pendiente de −0.005",
-      "El residual del árbol en el punto central es 0.25",
-      "No es posible interpretar los BLUPs individualmente"
-    ],
-    correctIndex: 0,
-    explanation: "Los BLUPs b₀ᵢ y b₁ᵢ son desviaciones respecto al promedio del grupo: b₀ᵢ = +0.25 significa que este árbol parte 0.25 unidades por encima de β₀ (promedio Control), y b₁ᵢ = −0.005 que su tasa de crecimiento es 0.005 unidades/día menor que la media del grupo (β₁)."
-  },
-  {
-    question: "¿Por qué AIC(M0) es generalmente mayor que AIC(M1) aunque M0 sea más parsimonioso?",
-    options: [
-      "Porque M1 tiene más parámetros y el AIC penaliza la simplicidad",
-      "Porque M0 ignora la correlación intra-árbol, lo que produce una verosimilitud mucho menor",
-      "Porque el AIC de una regresión clásica no es comparable con el AIC de un modelo mixto",
-      "Porque lm() usa OLS y lmer() usa REML, que produce mejores verosimilitudes"
-    ],
-    correctIndex: 1,
-    explanation: "M0 asume independencia entre observaciones, lo que produce residuales correlacionados que la verosimilitud no modela bien. M1 captura esa correlación mediante el intercepto aleatorio, obteniendo una log-verosimilitud mucho más alta, que más que compensa el parámetro adicional (τ₀²) en el AIC."
-  }
-]} />
+- **Correa, J. C. y Salazar, J. C. (2025).** *Modelos Mixtos.* Universidad Nacional de Colombia, Sede Medellín, Facultad de Ciencias, Departamento de Estadística. [Material del curso, disponible en el repositorio].
+- **Fitzmaurice, G. M., Laird, N. M. y Ware, J. H. (2011).** *Applied Longitudinal Analysis* (2.ª ed.). John Wiley & Sons. [Capítulos 1, 5 y 8: introducción a datos longitudinales, interacciones y construcción progresiva del LMM].

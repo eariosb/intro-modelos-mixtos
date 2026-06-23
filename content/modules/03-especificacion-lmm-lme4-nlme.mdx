@@ -1,5 +1,5 @@
 ---
-title: "Especificación de un LMM con lme4 y nlme"
+title: "Especificación de un LMM (Linear Mixed Model)"
 slug: "especificacion-lmm-lme4-nlme"
 subtitle: "Variantes del LMM, cuándo usar cada una, y cómo leer la salida completa del modelo."
 objective:
@@ -15,50 +15,48 @@ datasets:
 
 ## Del análisis exploratorio a la especificación del modelo
 
-El EDA del Módulo 1 mostró dos señales claras en `sleepstudy`:
+El análisis exploratorio del módulo anterior reveló dos señales claras en `sleepstudy`:
 
-1. **Los interceptos varían entre sujetos**: en el día 0, el tiempo de reacción oscila de ~200 ms a ~310 ms.
-2. **Las pendientes también varían**: algunos sujetos se deterioran ≈5 ms/día, otros ≈25 ms/día.
+1. **Los interceptos varían entre sujetos**: en el día 0, el tiempo de reacción se extiende desde aproximadamente 200 ms hasta más de 310 ms. Cada sujeto tiene un nivel basal propio.
+2. **Las pendientes también varían**: algunos sujetos se deterioran apenas 5 ms por día de privación, mientras que otros empeoran a un ritmo de 25 ms por día.
 
-Esas dos observaciones empíricas se traducen directamente en decisiones de especificación del modelo. Esta
-sección formaliza ese razonamiento.
+Estas dos observaciones empíricas se traducen directamente en decisiones de especificación. Como señalan **Correa y Salazar (2025)** en su texto sobre modelos mixtos, *"la estructura de los efectos aleatorios debe reflejar las fuentes de variación identificadas en la etapa exploratoria; no hay una estructura universalmente correcta, sino una que es adecuada para los datos y la pregunta de investigación"*.
+
+Esta sección formaliza ese razonamiento. Seguimos de cerca la exposición de **Fitzmaurice, Laird y Ware (2011, cap. 8)**, quienes enfatizan que la especificación de un modelo mixto es un proceso iterativo que combina criterios estadísticos, gráficos y teóricos.
 
 ---
 
 ## Las tres variantes fundamentales de la estructura aleatoria
 
-Un LMM con respuesta $y_{ij}$ (sujeto $i$, tiempo $j$) y un predictor continuo $t_{ij}$ puede tener tres
-configuraciones comunes de efectos aleatorios. Cada una responde a una pregunta diferente sobre la heterogeneidad
-de la población.
+Un LMM con respuesta $y_{ij}$ para el sujeto $i$ en el tiempo $j$ y un predictor continuo $t_{ij}$ admite tres configuraciones comunes de efectos aleatorios. Cada una responde a una pregunta diferente sobre la heterogeneidad de la población. Siguiendo la notación de **Correa y Salazar (2025, cap. 5)**, presentamos las variantes en orden creciente de complejidad.
 
 <DataTable
   caption="Variantes de la estructura aleatoria de un LMM"
-  columns={["Variante", "Fórmula aleatoria en R", "Parámetros libres en D", "Cuándo usarla"]}
+  columns={["Variante", "Fórmula aleatoria en R", "Parámetros en D", "Cuándo usarla"]}
   rows={[
     [
       "A — Solo intercepto",
       "(1 | Subject)",
       "1 (τ₀²)",
-      "Perfiles paralelos en EDA; solo varía el nivel basal"
+      "Perfiles aproximadamente paralelos en el spaghetti plot; solo varía el nivel basal entre sujetos"
     ],
     [
       "B — Intercepto + pendiente (correlación libre)",
       "(time | Subject)",
       "3 (τ₀², τ₁², τ₀₁)",
-      "Perfiles que divergen o se cruzan; sujetos con tasas de cambio distintas"
+      "Perfiles que divergen o se cruzan; hay sujetos con tasas de cambio visiblemente distintas"
     ],
     [
       "C — Intercepto + pendiente (correlación = 0)",
       "(1 | Subject) + (0 + time | Subject)",
       "2 (τ₀², τ₁²)",
-      "Como B, pero pocos datos por sujeto o problemas de convergencia"
+      "Como B, pero con pocos datos por sujeto o cuando la correlación estimada es inestable"
     ]
   ]}
 />
 
 <Callout type="info" title="La notación (time | Subject) es abreviatura de (1 + time | Subject)">
-  El intercepto aleatorio siempre está implícito cuando la fórmula tiene más de un término a la izquierda de
-  `|`. Para excluir el intercepto aleatorio (raramente justificado) se escribe `(0 + time | Subject)`.
+  El intercepto aleatorio siempre está implícito cuando hay más de un término a la izquierda de `|`. Para excluir el intercepto aleatorio (algo que rara vez se justifica en la práctica) se escribe `(0 + time | Subject)`. **Fitzmaurice et al. (2011, p. 195)** señalan que los modelos sin intercepto aleatorio implican que todos los sujetos parten del mismo valor basal, un supuesto fuerte que debe verificarse.
 </Callout>
 
 ---
@@ -67,34 +65,31 @@ de la población.
 
 ### Qué dice conceptualmente
 
-Este modelo asume que **todos los sujetos tienen la misma pendiente** (la misma tasa de cambio con el tiempo),
-pero cada uno parte de un **nivel basal distinto**. La heterogeneidad entre sujetos es solo de "posición":
-los perfiles individuales son líneas paralelas, desplazadas verticalmente.
+Este modelo asume que **todos los sujetos comparten la misma pendiente** (la misma tasa de cambio a lo largo del tiempo), pero cada uno parte de un **nivel basal distinto**. La heterogeneidad entre sujetos es exclusivamente de posición: los perfiles individuales son líneas paralelas, desplazadas verticalmente unas de otras.
 
 $$
-y_{ij} = (\beta_0 + b_{0i}) + \beta_1\, t_{ij} + \varepsilon_{ij}, \qquad b_{0i} \sim N(0, \tau_0^2)
+y_{ij} = (\beta_0 + b_{0i}) + \beta_1\, t_{ij} + \varepsilon_{ij}, \qquad b_{0i} \sim N(0, \tau_0^2), \qquad \varepsilon_{ij} \sim N(0, \sigma^2)
 $$
 
 La varianza total de $y_{ij}$ se descompone en dos fuentes:
-- $\tau_0^2$: varianza **entre sujetos** (heterogeneidad de niveles basales).
-- $\sigma^2$: varianza **intra-sujeto** (ruido residual).
 
-El **coeficiente de correlación intraclase** (ICC) resume cuánta fracción de la variabilidad total es entre
-sujetos:
+- $\tau_0^2$: varianza **entre sujetos** (cuánto difieren los niveles basales).
+- $\sigma^2$: varianza **intra-sujeto** (ruido residual no explicado).
+
+Una cantidad derivada de gran utilidad es el **coeficiente de correlación intraclase** (ICC, por sus siglas en inglés), que mide la proporción de la varianza total atribuible a diferencias entre sujetos:
 
 $$
 \text{ICC} = \frac{\tau_0^2}{\tau_0^2 + \sigma^2}
 $$
 
-Un ICC alto (> 0.5) indica que la mayor parte de la variación está entre sujetos, justificando el modelo
-mixto frente a la regresión clásica.
+**Correa y Salazar (2025, cap. 4)** indican que un ICC superior a 0.10 ya justifica la inclusión del efecto aleatorio, pues refleja que al menos el 10 % de la variabilidad observada proviene de diferencias estables entre las unidades. Valores superiores a 0.50 son frecuentes en estudios con diseños cuidadosamente controlados donde la heterogeneidad entre individuos domina sobre el error de medición.
 
 ### Cuándo está justificada
 
-- La exploración gráfica muestra perfiles aproximadamente **paralelos** (las líneas del spaghetti plot tienen
-  pendientes similares).
-- La teoría no sugiere que las unidades deberían tener tasas de cambio distintas (ej: el efecto del tiempo es
-  el mismo para todos los pacientes de un grupo homogéneo).
+- La exploración gráfica muestra perfiles **aproximadamente paralelos**: las líneas del spaghetti plot tienen pendientes similares y mantienen distancias relativas constantes.
+- La teoría no sugiere que las unidades deban tener tasas de cambio distintas. Por ejemplo, si el efecto del tiempo es el mismo para todos los pacientes de un grupo homogéneo, una pendiente aleatoria no estaría respaldada conceptualmente, aunque los datos la sugirieran débilmente.
+
+**Fitzmaurice et al. (2011, p. 192)** advierten que la variante de solo intercepto aleatorio es a menudo un excelente punto de partida, y que conviene resistir la tentación de añadir pendientes aleatorias sin una justificación clara.
 
 ### Código R y SAS
 
@@ -125,7 +120,7 @@ RUN;
 
 /* El output incluye:
    - "Covariance Parameter Estimates": tau0^2 y sigma^2
-   - "Solution for Fixed Effects": beta0 y beta1 con sus SE
+   - "Solution for Fixed Effects": beta0 y beta1 con sus errores estándar
    ICC = tau0^2 / (tau0^2 + sigma^2) se calcula manualmente */`} />
 
 ---
@@ -134,9 +129,7 @@ RUN;
 
 ### Qué añade conceptualmente
 
-Este modelo reconoce que las unidades **difieren tanto en su nivel basal como en su tasa de cambio**. Además,
-permite que ambas características estén relacionadas: por ejemplo, en `sleepstudy`, ¿los sujetos con peor
-tiempo de reacción basal tienden también a deteriorarse más rápido?
+Este modelo reconoce que las unidades **difieren tanto en su nivel basal como en su tasa de cambio**. Además, permite que ambas características estén relacionadas en la población. La pregunta sustantiva es: ¿los sujetos que parten de un valor más alto tienden también a cambiar más rápido, o por el contrario los que parten más alto cambian menos?
 
 $$
 y_{ij} = (\beta_0 + b_{0i}) + (\beta_1 + b_{1i})\, t_{ij} + \varepsilon_{ij}
@@ -149,17 +142,16 @@ $$
 \right)
 $$
 
-La **correlación entre efectos aleatorios** $\rho_{01} = \tau_{01}/(\tau_0\,\tau_1)$ tiene una interpretación
-sustantiva: un $\rho_{01}$ positivo significa que los sujetos que parten más alto también crecen más rápido
-(o se deterioran más); un $\rho_{01}$ negativo indica convergencia (los que parten más alto cambian menos).
+La **correlación entre efectos aleatorios**, definida como $\rho_{01} = \tau_{01}/(\tau_0\,\tau_1)$, tiene una interpretación sustantiva directa. Un $\rho_{01}$ positivo indica que los sujetos que parten más alto también cambian más rápido (en el caso de `sleepstudy`, se deterioran más). Un $\rho_{01}$ negativo sugiere convergencia: los que parten más alto cambian menos a lo largo del tiempo, acercándose a los demás.
+
+**Correa y Salazar (2025, cap. 5)** dedican una sección completa a la interpretación de esta correlación, señalando que en estudios de crecimiento es frecuente encontrar correlaciones negativas (los individuos que parten más altos crecen más lentamente), mientras que en estudios de deterioro clínico pueden aparecer correlaciones positivas (los más afectados al inicio empeoran más rápido).
 
 ### Cuándo está justificada
 
-- El spaghetti plot o la rejilla de perfiles muestran **trayectorias que divergen o se cruzan**.
-- El EDA mostró que la correlación individual Days→Reaction varía entre sujetos (Módulo 1).
-- Hay suficientes mediciones por sujeto para estimar dos parámetros aleatorios (regla práctica: ≥5 mediciones
-  por unidad).
-- La teoría sugiere que el punto de partida y la velocidad de cambio están relacionados.
+- El spaghetti plot muestra **trayectorias que divergen o se cruzan** visiblemente.
+- El análisis exploratorio reveló que la correlación individual entre el predictor temporal y la respuesta varía sustancialmente entre sujetos.
+- Hay suficientes mediciones por sujeto para estimar dos parámetros aleatorios más su correlación. La regla práctica citada por **Fitzmaurice et al. (2011, p. 200)** es disponer de al menos 5 mediciones por unidad.
+- La teoría sugiere que el punto de partida y la velocidad de cambio podrían estar relacionados.
 
 ### Código R y SAS
 
@@ -175,10 +167,10 @@ mod_B <- lmer(Reaction ~ Days + (Days | Subject),
 summary(mod_B)
 
 # La sección "Random effects" muestra:
-# - Std.Dev (Subject, Intercept): sqrt(tau0^2)  — heterogeneidad de niveles basales
-# - Std.Dev (Subject, Days):      sqrt(tau1^2)  — heterogeneidad de pendientes
-# - Corr:                         rho_01         — ¿se relacionan intercept y pendiente?
-# - Std.Dev (Residual):           sigma          — ruido residual intra-sujeto
+# - Std.Dev (Subject, Intercept): sqrt(tau0^2)  — dispersión de niveles basales
+# - Std.Dev (Subject, Days):      sqrt(tau1^2)  — dispersión de pendientes
+# - Corr:                         rho_01         — correlación entre ambos
+# - Std.Dev (Residual):           sigma          — ruido intra-sujeto
 
 # Matriz D estimada
 VarCorr(mod_B)`} />
@@ -199,20 +191,16 @@ RUN;`} />
 
 ### Por qué forzar la correlación a cero
 
-Estimar la correlación $\rho_{01}$ consume un parámetro adicional y puede generar inestabilidad numérica
-cuando hay pocos sujetos o pocas mediciones por sujeto. Forzar $\tau_{01} = 0$ simplifica la estructura D:
+Estimar la correlación $\rho_{01}$ consume un parámetro adicional y, cuando hay pocos sujetos o pocas mediciones por sujeto, puede generar inestabilidad numérica. El mensaje `boundary (singular) fit` que a veces emite `lmer` suele estar relacionado con una matriz $\mathbf{D}$ difícil de estimar. En estas situaciones, forzar $\tau_{01} = 0$ produce un modelo más estable sin renunciar a la heterogeneidad en las pendientes:
 
 $$
 \mathbf{D} = \begin{pmatrix}\tau_0^2 & 0 \\ 0 & \tau_1^2\end{pmatrix}
 $$
 
-Esto no niega que los efectos aleatorios existan; solo asume que el nivel basal y la tasa de cambio de un
-sujeto no están asociados en la población.
+Esta restricción no niega que los efectos aleatorios existan; simplemente asume que el nivel basal y la tasa de cambio de un sujeto no están asociados en la población bajo estudio.
 
 <Callout type="warning" title="Cuándo NO usar la Variante C">
-  Si la teoría o el EDA sugieren una relación entre el nivel basal y la pendiente (por ejemplo, sujetos más
-  deteriorados se recuperan menos), forzar $\tau_{01} = 0$ produce un modelo mal especificado. Es preferible
-  usar la Variante B y lidiar con la inestabilidad numérica cambiando el optimizador.
+  Si la teoría o el análisis exploratorio sugieren una relación entre el nivel basal y la pendiente (por ejemplo, pacientes más graves al inicio se recuperan más lentamente), forzar $\tau_{01} = 0$ produce un modelo mal especificado. En ese caso, es preferible conservar la Variante B y, si hay problemas de convergencia, cambiar el optimizador (`lmerControl(optimizer = "bobyqa")`) o escalar los predictores. **Correa y Salazar (2025, cap. 5)** recomiendan examinar el gráfico de los BLUPs de intercepto contra los BLUPs de pendiente para decidir si la correlación es necesaria.
 </Callout>
 
 ### Código R y SAS
@@ -229,7 +217,7 @@ mod_C <- lmer(Reaction ~ Days + (1 | Subject) + (0 + Days | Subject),
 summary(mod_C)
 VarCorr(mod_C)
 
-# Notar: ya no aparece "Corr" en la sección de Random effects`} />
+# Notar: en "Random effects" ya no aparece la línea "Corr"`} />
 
 <SASAccordion title="Variante C en SAS (TYPE=VC para ambas componentes)" code={`/* Variante C: intercepto y pendiente aleatorios, covarianza = 0 */
 PROC MIXED DATA=sleepstudy METHOD=REML COVTEST;
@@ -245,24 +233,24 @@ RUN;`} />
 
 ## Cómo elegir entre variantes: criterios de datos y teoría
 
-La elección no es solo estadística. Combine siempre los dos planos:
+La elección de la estructura aleatoria no es un problema puramente estadístico. **Fitzmaurice et al. (2011, cap. 8)** insisten en que debe combinarse el juicio teórico con la evidencia empírica. **Correa y Salazar (2025, cap. 5)** proponen un esquema de decisión en tres planos que adaptamos a continuación.
 
 <ProcessSteps steps={[
   {
-    title: "Plano teórico: pregúntese si la heterogeneidad tiene sentido",
-    description: "¿Es razonable que cada sujeto tenga su propia tasa de cambio? Si estás midiendo el efecto de una droga en pacientes con la misma condición basal, quizás la pendiente aleatoria no está justificada por la teoría aunque los datos la sugieran."
+    title: "Plano teórico: preguntarse si la heterogeneidad tiene sentido",
+    description: "¿Es razonable que cada sujeto tenga su propia tasa de cambio? Si se mide el efecto de un fármaco en pacientes con la misma condición basal, quizás la pendiente aleatoria no está justificada conceptualmente, aunque los datos la sugieran. La teoría debe guiar la especificación; los datos, validarla."
   },
   {
-    title: "Plano empírico: lea el spaghetti plot y la correlación por sujeto",
-    description: "Perfiles paralelos → solo intercepto aleatorio (Var. A). Perfiles que divergen o se cruzan → considere pendiente aleatoria (Var. B o C). La correlación por sujeto del Módulo 1 cuantifica esta heterogeneidad."
+    title: "Plano empírico: leer el spaghetti plot y la variabilidad de pendientes",
+    description: "Perfiles paralelos → solo intercepto aleatorio (Variante A). Perfiles que divergen o se cruzan → considere pendiente aleatoria (Variante B o C). Complemente con el gráfico de pendientes individuales del módulo de exploración."
   },
   {
-    title: "Plano estadístico: compare modelos anidados",
-    description: "Use anova(mod_A, mod_B, refit=FALSE) para un LRT entre variantes. Complementariamente, compare AIC y BIC. Si el modelo más complejo no mejora significativamente, quédese con el más simple (parsimonia)."
+    title: "Plano estadístico: comparar modelos anidados",
+    description: "Use anova(mod_A, mod_B, refit=FALSE) para una prueba de razón de verosimilitud (LRT) entre variantes anidadas. Complemente con AIC y BIC. Si el modelo más complejo no mejora significativamente, quédese con el más simple por parsimonia."
   },
   {
-    title: "Plano numérico: verifique convergencia",
-    description: "Si lmer() da advertencia de singular fit o de convergencia fallida con la Var. B, intente la Var. C primero (menos parámetros), luego cambie el optimizador a bobyqa, y finalmente escale los predictores."
+    title: "Plano numérico: verificar convergencia y estabilidad",
+    description: "Si lmer() emite una advertencia de ajuste singular o de convergencia fallida con la Variante B, intente primero la Variante C (menos parámetros), luego cambie el optimizador a bobyqa, y como último recurso escale los predictores para mejorar el condicionamiento numérico."
   }
 ]} />
 
@@ -271,12 +259,13 @@ La elección no es solo estadística. Combine siempre los dos planos:
 <RCell id="compare-variants" title="Comparar Variante A vs B con LRT y AIC/BIC" code={`library(lme4)
 data(sleepstudy)
 
-mod_A <- lmer(Reaction ~ Days + (1 | Subject),          data = sleepstudy, REML = TRUE)
-mod_B <- lmer(Reaction ~ Days + (Days | Subject),        data = sleepstudy, REML = TRUE)
+mod_A <- lmer(Reaction ~ Days + (1 | Subject),         data = sleepstudy, REML = TRUE)
+mod_B <- lmer(Reaction ~ Days + (Days | Subject),       data = sleepstudy, REML = TRUE)
 mod_C <- lmer(Reaction ~ Days + (1 | Subject)
-                            + (0 + Days | Subject),      data = sleepstudy, REML = TRUE)
+                            + (0 + Days | Subject),     data = sleepstudy, REML = TRUE)
 
-# LRT entre modelos anidados (refit=FALSE mantiene REML para comparar SOLO la estructura aleatoria)
+# LRT entre modelos anidados
+# refit=FALSE mantiene REML: válido para comparar SOLO la estructura aleatoria
 anova(mod_A, mod_B, refit = FALSE)
 
 # Tabla de AIC / BIC para los tres
@@ -285,22 +274,21 @@ BIC(mod_A, mod_B, mod_C)`} />
 
 **Cómo leer la comparación:**
 
-- El **LRT** (estadístico $\chi^2$ y valor p en `anova()`) contrasta si el modelo más complejo ajusta
-  significativamente mejor. Un $p < 0.05$ favorece la variante más compleja.
-- El **AIC** penaliza la verosimilitud por el número de parámetros; el modelo con menor AIC es preferible
-  cuando hay incertidumbre sobre la estructura correcta.
-- El **BIC** penaliza más fuertemente la complejidad; suele favorecer modelos más simples que el AIC.
-- Si LRT y AIC apuntan al modelo más complejo pero BIC al más simple, deberá apoyarse en la **teoría**
-  para decidir.
+- El **LRT** (estadístico $\chi^2$ y valor p en la salida de `anova()`) contrasta la hipótesis nula de que el modelo más simple es suficiente. Un valor $p < 0.05$ favorece la variante más compleja.  
+  **Correa y Salazar (2025, cap. 5)** advierten que el LRT para componentes de varianza es conservador cuando el parámetro está en la frontera del espacio paramétrico ($\tau_1^2 = 0$), y recomiendan considerar también los criterios de información.
+- El **AIC** penaliza la verosimilitud por el número de parámetros. El modelo con menor AIC es preferible cuando existe incertidumbre sobre la estructura correcta.
+- El **BIC** penaliza más fuertemente la complejidad y suele favorecer modelos más parsimoniosos que el AIC. En muestras grandes, el BIC tiende a seleccionar el modelo verdadero si está entre los candidatos.
+- Si el LRT y el AIC apuntan al modelo más complejo pero el BIC favorece al más simple, la decisión debe apoyarse en la **teoría** y en los patrones observados en los gráficos exploratorios.
 
 <Callout type="warning" title="LRT con REML solo para comparar estructura aleatoria">
-  `anova(mod_A, mod_B, refit=FALSE)` compara la estructura **aleatoria** mientras mantiene los mismos efectos
-  fijos. Para comparar **efectos fijos**, debe usar `REML=FALSE` en ambos modelos. Ver Módulo 8.
+  `anova(mod_A, mod_B, refit=FALSE)` compara la estructura **aleatoria** manteniendo los mismos efectos fijos. Para comparar modelos con **distintos efectos fijos**, ambos deben ajustarse con `REML=FALSE`. Este punto se retoma con más detalle en el módulo de comparación de modelos.
 </Callout>
 
 ---
 
 ## Guía completa de lectura del output de summary(lmer())
+
+La salida de `summary()` de un modelo ajustado con `lmer` contiene cinco bloques de información. Saber leer cada uno es una competencia fundamental. **Fitzmaurice et al. (2011, cap. 8)** dedican un apartado completo a la interpretación de salidas de software, y adaptamos aquí sus recomendaciones.
 
 <RCell id="output-guide" title="Output completo del modelo B con sleepstudy" code={`library(lme4)
 data(sleepstudy)
@@ -309,104 +297,110 @@ mod_B <- lmer(Reaction ~ Days + (Days | Subject),
               data = sleepstudy, REML = TRUE)
 summary(mod_B)`} />
 
-La salida tiene cinco bloques. Aquí se explica cada uno:
+La salida se estructura en cinco bloques. A continuación se detalla cada uno.
 
 ### Bloque 1 — Fórmula y método de estimación
-
 ```
 Linear mixed model fit by REML ['lmerMod']
 Formula: Reaction ~ Days + (Days | Subject)
-   Data: sleepstudy
+Data: sleepstudy
 REML criterion at convergence: 1743.6
 ```
 
-- **REML criterion**: la deviance REML (−2 × log-verosimilitud restringida). Solo comparable entre modelos con
-  los mismos efectos fijos.
+**REML criterion**: la deviance REML, es decir, $-2 \times$ log-verosimilitud restringida. Solo es comparable entre modelos que comparten los mismos efectos fijos. No debe usarse para comparar modelos con distintas variables predictoras.
+La línea `REML criterion at convergence` indica que el algoritmo de optimización convergió exitosamente. Si apareciera un mensaje de advertencia aquí, habría que revisar la especificación.
 
 ### Bloque 2 — Residuos escalados
-
 ```
 Scaled residuals:
     Min      1Q  Median      3Q     Max
--3.9536 -0.4634  0.0231  0.4634  5.1793
+ -3.9536 -0.4634  0.0231  0.4634  5.1793
 ```
 
-- Si la distribución es aproximadamente normal, los cuartiles deberían estar cerca de ±0.67 y el mínimo/máximo
-  dentro de ±3.5. Valores extremos indican posibles outliers.
+Los residuos se presentan escalados (divididos por su desviación estándar estimada). Si el modelo es adecuado:
+
+- La mediana debería estar próxima a 0.
+- El primer y tercer cuartil deberían ser aproximadamente simétricos ($\approx \pm 0.67$ para una distribución normal).
+- El mínimo y el máximo no deberían alejarse excesivamente de $\pm 3.5$. Valores extremos (como el 5.18 que aparece aquí) pueden indicar la presencia de observaciones atípicas que conviene examinar.
 
 ### Bloque 3 — Efectos aleatorios ← **el corazón del LMM**
 
 ```
 Random effects:
- Groups   Name        Variance Std.Dev. Corr
- Subject  (Intercept) 612.10   24.741
-          Days         35.07    5.922   0.07
- Residual             654.94   25.592
-Number of obs: 180, groups:  Subject, 18
+  Groups Name Variance Std.Dev. Corr
+  Subject (Intercept) 612.10 24.741
+  Days 35.07 5.922 0.07
+  Residual 654.94 25.592
+  Number of obs: 180, groups: Subject, 18
 ```
 
 | Componente | Notación | Qué mide |
 |---|---|---|
-| Variance (Intercept, Subject) | $\tau_0^2 = 612$ | Cuánto varían los tiempos de reacción basales entre sujetos |
-| Variance (Days, Subject) | $\tau_1^2 = 35$ | Cuánto varían las pendientes (tasas de deterioro) entre sujetos |
-| Corr | $\rho_{01} = 0.07$ | ¿Los que parten más alto se deterioran más rápido? (correlación casi nula aquí) |
+| Variance (Intercept, Subject) | $\tau_0^2 = 612$ | Cuánto varían los tiempos de reacción basales entre sujetos (en ms²) |
+| Variance (Days, Subject) | $\tau_1^2 = 35$ | Cuánto varían las pendientes entre sujetos (en (ms/día)²) |
+| Corr | $\rho_{01} = 0.07$ | Correlación entre intercepto y pendiente aleatorios; aquí es prácticamente nula |
 | Residual | $\sigma^2 = 655$ | Variabilidad intra-sujeto no explicada por el modelo |
 
-La **desviación estándar** (Std.Dev.) es la raíz cuadrada de la varianza y está en las mismas unidades que
-$y$ (ms). Mide la dispersión de los efectos aleatorios en la población.
+La **desviación estándar** (`Std.Dev.`) es la raíz cuadrada de la varianza y se expresa en las mismas unidades que la respuesta. Por ejemplo, `Std.Dev. (Intercept) = 24.7` ms significa que, aproximadamente, el 95 % de los sujetos tienen su intercepto dentro de $\pm 1.96 \times 24.7 \approx \pm 48$ ms alrededor del intercepto medio poblacional.
+
+**Correa y Salazar (2025, cap. 5)** recomiendan prestar especial atención a la magnitud relativa de $\tau_1$ respecto a $\beta_1$: si la desviación estándar de las pendientes es grande en comparación con la pendiente media, existe una heterogeneidad sustancial en las trayectorias y el modelo con pendiente aleatoria está plenamente justificado.
 
 ### Bloque 4 — Efectos fijos
-
 ```
 Fixed effects:
-            Estimate Std. Error t value
-(Intercept)  251.405      6.825  36.84
-Days          10.467      1.546   6.77
+  Estimate Std. Error t value
+  (Intercept) 251.405 6.825 36.84
+  Days 10.467 1.546 6.77
 ```
 
-- **Intercept (251.4 ms)**: tiempo de reacción promedio poblacional en el día 0.
-- **Days (10.5 ms/día)**: por cada día adicional de privación, el tiempo de reacción promedio aumenta 10.5 ms.
-- **Std. Error**: incertidumbre del estimador puntual. El `lme4` no reporta p-valores por defecto; para
-  obtenerlos use `lmerTest::lmer()` o el paquete `lmerTest`.
+- **Intercept (251.4 ms)**: tiempo de reacción promedio poblacional en el día 0 de privación.
+- **Days (10.5 ms/día)**: por cada día adicional de privación de sueño, el tiempo de reacción promedio aumenta 10.5 ms.
+- **Std. Error**: error estándar del estimador, que cuantifica la incertidumbre asociada.
+- **t value**: el cociente entre la estimación y su error estándar. En muestras razonablemente grandes, valores superiores a 2 en valor absoluto indican significación estadística aproximada.
+
+`lme4` no reporta valores p para los efectos fijos por defecto. Esto obedece a un debate metodológico sobre los grados de libertad apropiados en modelos con estructura aleatoria compleja o datos desbalanceados. Para obtener valores p, existen tres alternativas:
+
+1. Usar `lmerTest::lmer()`, que incorpora la aproximación de Satterthwaite.
+2. Calcular intervalos de confianza con `confint(mod_B, method = "Wald")`.
+3. Usar la aproximación de Kenward-Roger disponible en el paquete `pbkrtest`.
 
 ### Bloque 5 — Correlación de los efectos fijos
-
 ```
 Correlation of Fixed Effects:
-     (Intr)
-Days -0.138
+  (Intr)
+  Days -0.138
 ```
 
-- Esta es la **correlación entre los estimadores** $\hat\beta_0$ y $\hat\beta_1$, no entre los efectos
-  aleatorios. Un valor cercano a 0 (como aquí) indica que las estimaciones son casi ortogonales.
-- Una correlación alta (> ±0.7) sugiere que centrar el predictor de tiempo mejoraría la interpretación.
+Esta es la **correlación entre los estimadores** $\hat{\beta}_0$ y $\hat{\beta}_1$, no entre los efectos aleatorios. Un valor cercano a 0 (como −0.14 en este caso) indica que las estimaciones son casi ortogonales entre sí. Una correlación alta en valor absoluto (> 0.7) sugeriría que centrar el predictor temporal (por ejemplo, usar `I(Days - mean(Days))` en lugar de `Days`) mejoraría la interpretación y la estabilidad numérica del modelo.
 
 ---
 
 ## REML vs ML: regla práctica
 
+**Fitzmaurice et al. (2011, cap. 4)** presentan una discusión accesible sobre la diferencia entre máxima verosimilitud (ML) y máxima verosimilitud restringida (REML). La tabla siguiente resume las recomendaciones prácticas.
+
 <DataTable
   caption="¿Cuándo usar REML y cuándo ML?"
   columns={["Objetivo", "Método", "Razón"]}
   rows={[
-    ["Estimar varianzas y reportar el modelo final", "REML (default)", "Corrección del sesgo en la estimación de τ² y σ²"],
-    ["Comparar modelos con distintos efectos fijos (LRT)", "ML (REML=FALSE)", "REML no produce la misma verosimilitud para distintos X_i"],
-    ["Comparar modelos con mismos efectos fijos pero distinta estructura aleatoria", "REML (refit=FALSE)", "La verosimilitud restringida es comparable cuando X_i es igual"],
-    ["Selección de modelos con AIC/BIC (módulo 8)", "ML o REML", "Consistente dentro de la misma sesión; ML más común en literatura"]
+    ["Estimar componentes de varianza y reportar el modelo final", "REML (opción por defecto)", "REML corrige el sesgo en la estimación de τ² y σ² que se produce con ML en muestras finitas"],
+    ["Comparar modelos con distintos efectos fijos (LRT)", "ML (REML = FALSE)", "REML transforma los datos y produce verosimilitudes no comparables cuando cambian las matrices de diseño"],
+    ["Comparar modelos con mismos efectos fijos pero distinta estructura aleatoria", "REML (refit = FALSE)", "La verosimilitud restringida es comparable cuando la parte fija es idéntica"],
+    ["Selección de modelos mediante AIC o BIC", "Preferentemente ML", "Aunque existe debate, la práctica más extendida en la literatura aplicada es usar ML para comparar modelos con distintos efectos fijos"]
   ]}
 />
 
 <Callout type="tip" title="Regla de oro">
-  Use REML para **todo lo que no sea comparar efectos fijos**. Cuando necesite un LRT entre modelos con
-  distintos efectos fijos, refite ambos con `REML=FALSE`, compare, y vuelva a REML para reportar el modelo
-  ganador.
+  Use REML para **todo lo que no sea comparar efectos fijos**. Cuando necesite una prueba de razón de verosimilitud entre modelos con distintos predictores, ajuste ambos con `REML = FALSE`, realice la comparación, y vuelva a REML para presentar las estimaciones finales del modelo seleccionado. Esta práctica es la recomendada por **Correa y Salazar (2025, cap. 3)** y por la mayoría de los textos aplicados.
 </Callout>
 
 ---
 
 ## Valores ajustados y residuales
 
-<RCell id="fitted-residuals" title="Extraer fitted values, residuales y efectos aleatorios" code={`library(lme4)
+Una vez ajustado el modelo, conviene extraer los valores ajustados, los residuos y las predicciones de los efectos aleatorios (BLUPs). **Fitzmaurice et al. (2011, p. 203)** recomiendan examinar gráficamente los residuos para verificar los supuestos del modelo antes de proceder a la inferencia.
+
+<RCell id="fitted-residuals" title="Extraer valores ajustados, residuales y BLUPs" code={`library(lme4)
 library(ggplot2)
 data(sleepstudy)
 
@@ -416,7 +410,7 @@ mod_B <- lmer(Reaction ~ Days + (Days | Subject),
 # Valores ajustados (incluyen el efecto aleatorio de cada sujeto)
 sleepstudy$fitted   <- fitted(mod_B)
 
-# Residuales (diferencia entre observado y ajustado)
+# Residuales (diferencia entre valor observado y ajustado)
 sleepstudy$resid    <- resid(mod_B)
 
 # Efectos aleatorios estimados (BLUPs): b0i y b1i para cada sujeto
@@ -430,46 +424,46 @@ ggplot(sleepstudy, aes(x = Days)) +
   scale_x_continuous(breaks = c(0, 3, 6, 9)) +
   labs(
     title    = "Rectas ajustadas del LMM por sujeto (Variante B)",
-    subtitle = "Cada recta usa el intercepto y la pendiente específicos del sujeto (β + b_i)",
-    x = "Días", y = "Tiempo de reacción (ms)"
+    subtitle = "Cada recta combina el efecto fijo poblacional y los BLUPs del sujeto",
+    x = "Días de privación de sueño",
+    y = "Tiempo de reacción (ms)"
   ) +
   theme_minimal(base_size = 9) +
   theme(strip.text = element_text(size = 8, face = "bold"),
         panel.grid.minor = element_blank())`} />
 
-**Qué observar:**
+**Qué observar en este gráfico de ajustes individuales:**
 
-- Las rectas **no son paralelas**: cada sujeto tiene su propio intercepto y su propia pendiente (eso es la
-  Variante B).
-- Los sujetos cuya recta sube poco son los "resistentes" a la privación de sueño; los de recta empinada, los
-  más vulnerables.
-- Compare este gráfico con el de la Variante A (`(1 | Subject)`, rectas paralelas) para ver visualmente
-  lo que aporta la pendiente aleatoria.
+- Las rectas **no son paralelas**: cada sujeto tiene su propio intercepto y su propia pendiente. Esto refleja la estructura de la Variante B y permite apreciar visualmente lo que aporta la inclusión de la pendiente aleatoria.
+- Los sujetos cuya recta sube poco (pendiente cercana a 0 o incluso ligeramente negativa) son los más resistentes a la privación de sueño. Aquellos con rectas muy inclinadas son los más vulnerables.
+- Compare mentalmente este gráfico con el que se obtendría de la Variante A (`(1 | Subject)`, rectas paralelas) para apreciar la diferencia. En el módulo de exploración gráfica se mostró cómo superponer ambas representaciones.
+
+**Correa y Salazar (2025, cap. 5)** dedican una sección a la interpretación de los BLUPs, señalando que no deben tratarse como estimaciones insesgadas de los efectos individuales (tienen shrinkage hacia la media poblacional), pero sí como herramientas valiosas para la validación del modelo y la identificación de sujetos con trayectorias atípicas.
 
 ---
 
-<Flashcards title="Conceptos del módulo 3" items={[
+<Flashcards title="Conceptos del módulo" items={[
   {
-    front: "¿Qué diferencia hay entre (Days | Subject) y (1|Subject) + (0+Days|Subject)?",
-    back: "La primera forma (Variante B) estima la covarianza τ₀₁ entre intercepto y pendiente; la segunda (Variante C) la fuerza a cero. Ambas incluyen τ₀² y τ₁², pero difieren en si permiten que intercepto y pendiente estén correlacionados."
+    front: "¿Qué diferencia hay entre (Days | Subject) y (1 | Subject) + (0 + Days | Subject)?",
+    back: "La primera forma (Variante B) estima la covarianza τ₀₁ entre intercepto y pendiente aleatorios; la segunda (Variante C) la fuerza a cero. Ambas incluyen τ₀² y τ₁², pero difieren en si permiten que el nivel basal y la tasa de cambio estén correlacionados en la población."
   },
   {
     front: "¿Qué es el ICC y qué valor indica que el modelo mixto es necesario?",
-    back: "ICC = τ₀² / (τ₀² + σ²): fracción de la varianza total que se debe a diferencias entre sujetos. Un ICC > 0.1 (10%) ya justifica el modelo mixto. Con ICC cercano a 0, la regresión clásica es aceptable."
+    back: "ICC = τ₀² / (τ₀² + σ²) es la fracción de la varianza total atribuible a diferencias entre sujetos. Un ICC > 0.10 ya justifica el modelo mixto frente a la regresión clásica. Valores cercanos a 0 sugieren que la agrupación es irrelevante y la regresión ordinaria es aceptable."
   },
   {
     front: "¿Por qué lme4 no reporta valores p para los efectos fijos?",
-    back: "Por el debate sobre los grados de libertad correctos en modelos desbalanceados o con estructuras complejas. Use lmerTest::lmer() para p-valores basados en aproximación de Satterthwaite, o confíe en los intervalos de confianza: confint(mod_B)."
+    back: "Por el debate metodológico sobre los grados de libertad correctos en modelos desbalanceados o con estructuras de covarianza complejas. Use lmerTest::lmer() para obtener p-valores basados en la aproximación de Satterthwaite, o calcule intervalos de confianza con confint()."
   },
   {
     front: "¿Qué son los BLUPs y para qué sirven?",
-    back: "Best Linear Unbiased Predictors: las estimaciones de los efectos aleatorios b₀ᵢ y b₁ᵢ para cada sujeto. Se obtienen con ranef(). No se 'prueban' individualmente sino que se usan para predicción o para validar supuestos sobre su distribución normal."
+    back: "Best Linear Unbiased Predictors: las predicciones de los efectos aleatorios b₀ᵢ y b₁ᵢ para cada sujeto. Se obtienen con ranef() y tienen shrinkage hacia la media poblacional. Se usan para validar supuestos de normalidad de los aleatorios, para identificar sujetos atípicos y para hacer predicciones individuales, pero no se contrastan estadísticamente uno a uno."
   }
 ]} />
 
 <Quiz questions={[
   {
-    question: "En la salida de summary(lmer()), ¿qué mide 'Std.Dev. (Days, Subject)'?",
+    question: "En la salida de summary(lmer()), ¿qué representa 'Std.Dev. (Days, Subject)'?",
     options: [
       "El error estándar del coeficiente fijo de Days",
       "La desviación estándar de los efectos aleatorios de pendiente entre sujetos (√τ₁²)",
@@ -477,10 +471,10 @@ ggplot(sleepstudy, aes(x = Days)) +
       "La correlación entre los efectos aleatorios"
     ],
     correctIndex: 1,
-    explanation: "Std.Dev. en la sección 'Random effects' es √τ₁², que mide cuánto varían las pendientes individuales alrededor de la pendiente media β₁. No confundir con el Std. Error de los efectos fijos."
+    explanation: "Std.Dev. en la sección 'Random effects' es √τ₁², la dispersión de las pendientes individuales alrededor de la pendiente media poblacional β₁. No debe confundirse con el Std. Error de los efectos fijos, que aparece en la sección 'Fixed effects' y cuantifica la incertidumbre sobre la estimación de β₁."
   },
   {
-    question: "¿Cuándo es correcto usar anova(mod_A, mod_B, refit=FALSE)?",
+    question: "¿Cuándo es correcto usar anova(mod_A, mod_B, refit = FALSE)?",
     options: [
       "Cuando los modelos tienen distintos efectos fijos",
       "Cuando los modelos tienen los mismos efectos fijos pero distinta estructura aleatoria",
@@ -488,10 +482,10 @@ ggplot(sleepstudy, aes(x = Days)) +
       "Solo cuando ambos modelos se ajustaron con ML"
     ],
     correctIndex: 1,
-    explanation: "refit=FALSE mantiene REML y es válido para comparar estructuras aleatorias anidadas con los mismos efectos fijos. Para comparar efectos fijos se necesita ML (refit=TRUE o ajustar con REML=FALSE)."
+    explanation: "refit = FALSE mantiene REML y es válido para comparar estructuras aleatorias anidadas que comparten los mismos efectos fijos. Para comparar efectos fijos se necesita ML (refit = TRUE, o bien ajustar ambos modelos con REML = FALSE desde el principio)."
   },
   {
-    question: "Un spaghetti plot muestra líneas que parten de niveles distintos pero con pendientes muy similares. ¿Qué variante es más parsimoniosamente adecuada?",
+    question: "Un spaghetti plot muestra líneas que parten de niveles distintos pero con pendientes muy similares. ¿Qué variante es la más adecuada por parsimonia?",
     options: [
       "Variante B: intercepto y pendiente aleatorios con correlación libre",
       "Variante C: intercepto y pendiente aleatorios sin correlación",
@@ -499,6 +493,15 @@ ggplot(sleepstudy, aes(x = Days)) +
       "Regresión clásica sin efectos aleatorios"
     ],
     correctIndex: 2,
-    explanation: "Perfiles paralelos indican que la heterogeneidad está en el nivel basal, no en la tasa de cambio. Agregar una pendiente aleatoria (Var. B o C) no está justificado por los datos y gasta parámetros innecesarios."
+    explanation: "Perfiles paralelos indican que la heterogeneidad está en el nivel basal, no en la tasa de cambio. Agregar una pendiente aleatoria (Variante B o C) añade parámetros sin una justificación clara en los datos, violando el principio de parsimonia. La Variante A captura la heterogeneidad observada con el mínimo de parámetros adicionales."
   }
 ]} />
+
+---
+
+## Referencias del módulo
+
+- **Correa, J. C. y Salazar, J. C. (2025).** *Modelos Mixtos.* Universidad Nacional de Colombia, Sede Medellín, Facultad de Ciencias, Departamento de Estadística. [Disponible en el repositorio del curso].
+- **Fitzmaurice, G. M., Laird, N. M. y Ware, J. H. (2011).** *Applied Longitudinal Analysis* (2.ª ed.). John Wiley & Sons. [Capítulos 4, 5 y 8: especificación del LMM, estimación REML/ML e interpretación de salidas].
+- **Pinheiro, J. y Bates, D. (2000).** *Mixed-Effects Models in S and S-PLUS.* Springer. [Texto de referencia del paquete `nlme`; capítulos 1 y 2 contienen una exposición rigurosa de la notación y las estructuras de covarianza].
+- **Bates, D., Mächler, M., Bolker, B. y Walker, S. (2015).** Fitting linear mixed-effects models using lme4. *Journal of Statistical Software*, 67(1), 1–48. [Documentación técnica de `lme4`; incluye recomendaciones sobre optimizadores y manejo de advertencias de convergencia].
