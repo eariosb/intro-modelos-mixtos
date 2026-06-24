@@ -234,3 +234,242 @@ plotResiduals(sim, form = prog$time)`} />
     explanation: "Un outlier estadístico no es automáticamente un error de datos; antes de cualquier acción (corregir, excluir, o dejarlo) se debe revisar su plausibilidad clínica con el equipo correspondiente."
   }
 ]} />
+
+---
+
+## Apéndice: Diagnóstico por influencia — Distancia de Cook y DFBETAS
+
+Más allá de los residuos, un análisis completo evalúa la **influencia** de observaciones y sujetos sobre los estimadores. Correa y Salazar (2016, Cap. 5) llaman a esto "diagnósticos vía eliminación de observaciones".
+
+<Callout type="info" title="Distancia de Cook generalizada para LMM">
+  Para el sujeto $i$:
+  $$D_i = \frac{(\hat\boldsymbol\beta_{(-i)} - \hat\boldsymbol\beta)^\top \widehat{\text{Var}}(\hat\boldsymbol\beta)^{-1} (\hat\boldsymbol\beta_{(-i)} - \hat\boldsymbol\beta)}{p}$$
+  donde $\hat\boldsymbol\beta_{(-i)}$ son los estimadores al excluir el sujeto $i$ y $p$ es el número de efectos fijos. Heurístico: $D_i > 4/N$ sugiere influencia excesiva.
+</Callout>
+
+<RCell id="influence-cook" title="Distancia de Cook por sujeto con influence.ME" code={`if (!requireNamespace("influence.ME", quietly = TRUE))
+  install.packages("influence.ME", repos = "https://cloud.r-project.org")
+library(influence.ME)
+library(lme4)
+library(ggplot2)
+
+data(sleepstudy, package = "lme4")
+mod_sleep <- lmer(Reaction ~ Days + (Days | Subject), data = sleepstudy)
+
+cat("Calculando influencia por sujeto...\n")
+infl_suj <- influence(mod_sleep, group = "Subject")
+cooks    <- cooks.distance(infl_suj)
+N        <- length(unique(sleepstudy$Subject))
+umbral   <- 4 / N
+
+df_cook <- data.frame(Subject = names(cooks), Cook_D = as.numeric(cooks),
+                       influyente = as.numeric(cooks) > umbral)
+cat(sprintf("Umbral = 4/N = %.4f\n\n", umbral))
+print(df_cook[order(-df_cook$Cook_D), ])
+
+suj_max <- df_cook$Subject[which.max(df_cook$Cook_D)]
+cat(sprintf("\nSujeto más influyente: %s (D = %.4f)\n", suj_max, max(df_cook$Cook_D)))
+
+ggplot(df_cook, aes(x = reorder(Subject, -Cook_D), y = Cook_D, fill = influyente)) +
+  geom_col() +
+  geom_hline(yintercept = umbral, linetype = "dashed", color = "darkred") +
+  scale_fill_manual(values = c("FALSE" = "steelblue", "TRUE" = "firebrick"),
+                    labels = c("Normal", "Influyente")) +
+  labs(title = "Distancia de Cook por sujeto — sleepstudy",
+       x = "Sujeto", y = "Distancia de Cook", fill = "") +
+  theme_bw()`}
+/>
+
+<RCell id="influence-remove" title="Efecto de eliminar el sujeto más influyente" code={`library(influence.ME)
+library(lme4)
+
+data(sleepstudy, package = "lme4")
+mod_sleep <- lmer(Reaction ~ Days + (Days | Subject), data = sleepstudy)
+infl_suj  <- influence(mod_sleep, group = "Subject")
+cooks     <- cooks.distance(infl_suj)
+suj_max   <- names(which.max(cooks))
+
+cat(sprintf("Sujeto más influyente: %s\nPerfil:\n", suj_max))
+print(sleepstudy[sleepstudy$Subject == suj_max, ])
+
+# Modelo sin ese sujeto
+mod_sin <- lmer(Reaction ~ Days + (Days | Subject),
+                data = sleepstudy[sleepstudy$Subject != suj_max, ])
+
+fe_con <- fixef(mod_sleep)
+fe_sin <- fixef(mod_sin)
+
+df_comp <- data.frame(
+  Coeficiente = names(fe_con),
+  Con_sujeto  = round(fe_con, 4),
+  Sin_sujeto  = round(fe_sin, 4),
+  Diferencia  = round(fe_sin - fe_con, 4),
+  Cambio_pct  = round(100 * (fe_sin - fe_con) / abs(fe_con), 2)
+)
+cat("\n=== COEFICIENTES: CON vs. SIN SUJETO INFLUYENTE ===\n")
+print(df_comp, row.names = FALSE)`}
+/>
+
+---
+
+## Apéndice: Diagnóstico por influencia — Distancia de Cook y DFBETAS
+
+Más allá de los residuos, un análisis de diagnóstico completo debe evaluar la **influencia** de observaciones y sujetos sobre los estimadores del modelo. Correa y Salazar (2016, Cap. 5) denominan a esto "diagnósticos vía eliminación de observaciones".
+
+### Tipos de influencia en modelos mixtos
+
+- **Influencia en los efectos fijos** ($\hat\boldsymbol{\beta}$): cuánto cambiaría $\hat\beta_j$ si elimináramos el sujeto $i$ o la observación $(i,t)$.
+- **Influencia en los efectos aleatorios** ($\hat\mathbf{b}_i$): cuánto cambia la predicción individual.
+- **Influencia en la función de verosimilitud**: distancia de Cook generalizada para LMM.
+
+El paquete `influence.ME` (Nieuwenhuis et al., 2012) implementa estas medidas para modelos `lmer`.
+
+<Callout type="info" title="Distancia de Cook generalizada para LMM">
+  La distancia de Cook para el sujeto $i$ en un LMM se define como:
+  $$D_i = \frac{(\hat\boldsymbol\beta_{(-i)} - \hat\boldsymbol\beta)^\top \text{Var}(\hat\boldsymbol\beta)^{-1} (\hat\boldsymbol\beta_{(-i)} - \hat\boldsymbol\beta)}{p}$$
+  donde $\hat\boldsymbol\beta_{(-i)}$ son los estimadores al excluir el sujeto $i$, y $p$ es el número de efectos fijos. Un valor $D_i > 4/N$ (criterio heurístico) sugiere influencia excesiva.
+</Callout>
+
+<RCell id="influence-cook" title="Distancia de Cook por sujeto con influence.ME" code={`# Instalar influence.ME si no está disponible
+if (!requireNamespace("influence.ME", quietly = TRUE)) {
+  install.packages("influence.ME", repos = "https://cloud.r-project.org")
+}
+library(influence.ME)
+library(lme4)
+library(ggplot2)
+
+data(sleepstudy, package = "lme4")
+
+# Modelo de referencia (mismo que módulo 3)
+mod_sleep <- lmer(Reaction ~ Days + (Days | Subject), data = sleepstudy)
+
+# Calcular influencia a nivel de sujeto
+cat("Calculando influencia por sujeto (puede tardar unos segundos)...\\n")
+infl_suj <- influence(mod_sleep, group = "Subject")
+
+# Distancias de Cook
+cooks <- cooks.distance(infl_suj)
+
+# Umbral heurístico 4/N
+N <- length(unique(sleepstudy$Subject))
+umbral <- 4 / N
+
+cat(sprintf("\\n=== DISTANCIAS DE COOK (umbral = 4/N = %.4f) ===\\n", umbral))
+df_cook <- data.frame(
+  Subject  = names(cooks),
+  Cook_D   = as.numeric(cooks),
+  influyente = as.numeric(cooks) > umbral
+)
+print(df_cook[order(-df_cook$Cook_D), ])
+
+# Identificar el sujeto más influyente
+suj_max <- df_cook$Subject[which.max(df_cook$Cook_D)]
+cat(sprintf("\\nSujeto más influyente: %s (D = %.4f)\\n",
+            suj_max, max(df_cook$Cook_D)))
+
+# Gráfico de barras
+ggplot(df_cook, aes(x = reorder(Subject, -Cook_D), y = Cook_D,
+                     fill = influyente)) +
+  geom_col() +
+  geom_hline(yintercept = umbral, linetype = "dashed", color = "darkred",
+             linewidth = 0.8) +
+  annotate("text", x = N - 1, y = umbral + 0.005,
+           label = paste0("4/N = ", round(umbral, 4)), color = "darkred", size = 3) +
+  scale_fill_manual(values = c("FALSE" = "steelblue", "TRUE" = "firebrick"),
+                    labels = c("Normal", "Influyente")) +
+  labs(title = "Distancia de Cook por sujeto — sleepstudy",
+       subtitle = "Sujetos por encima del umbral merecen revisión",
+       x = "Sujeto", y = "Distancia de Cook", fill = "") +
+  theme_bw()`}
+/>
+
+<RCell id="influence-dfbetas" title="DFBETAS: impacto en los coeficientes individuales" code={`library(influence.ME)
+library(lme4)
+library(ggplot2)
+
+data(sleepstudy, package = "lme4")
+mod_sleep <- lmer(Reaction ~ Days + (Days | Subject), data = sleepstudy)
+infl_suj  <- influence(mod_sleep, group = "Subject")
+
+# DFBETAS: cambio estandarizado en cada coeficiente al excluir el sujeto
+dfb <- dfbetas(infl_suj)
+cat("=== DFBETAS POR SUJETO ===\\n")
+print(round(dfb, 4))
+
+# Umbral DFBETAS: 2/sqrt(N)
+N <- length(unique(sleepstudy$Subject))
+umbral_dfb <- 2 / sqrt(N)
+cat(sprintf("\\nUmbral DFBETAS = 2/sqrt(N) = %.4f\\n", umbral_dfb))
+
+# Gráfico de DFBETAS para la pendiente (Days)
+df_dfb <- data.frame(
+  Subject = rownames(dfb),
+  dfb_int = dfb[, "(Intercept)"],
+  dfb_days = dfb[, "Days"]
+)
+
+ggplot(df_dfb, aes(x = reorder(Subject, -abs(dfb_days)), y = dfb_days)) +
+  geom_col(fill = "steelblue", alpha = 0.8) +
+  geom_hline(yintercept = c(-umbral_dfb, umbral_dfb),
+             linetype = "dashed", color = "darkred") +
+  labs(title = "DFBETAS para el coeficiente de Days",
+       subtitle = "Influencia de cada sujeto sobre la estimación de la pendiente",
+       x = "Sujeto", y = "DFBETAS (Days)") +
+  theme_bw()`}
+/>
+
+<RCell id="influence-remove" title="Efecto de eliminar el sujeto más influyente" code={`library(influence.ME)
+library(lme4)
+library(ggplot2)
+
+data(sleepstudy, package = "lme4")
+mod_sleep <- lmer(Reaction ~ Days + (Days | Subject), data = sleepstudy)
+infl_suj  <- influence(mod_sleep, group = "Subject")
+
+# Identificar sujeto más influyente por Cook's D
+cooks <- cooks.distance(infl_suj)
+suj_max <- names(which.max(cooks))
+
+cat(sprintf("Sujeto más influyente: %s\\n", suj_max))
+cat("Perfil de observaciones:\\n")
+print(sleepstudy[sleepstudy$Subject == suj_max, ])
+
+# Modelo sin ese sujeto
+dat_sin <- sleepstudy[sleepstudy$Subject != suj_max, ]
+mod_sin <- lmer(Reaction ~ Days + (Days | Subject), data = dat_sin)
+
+# Tabla comparativa
+fe_con <- fixef(mod_sleep)
+fe_sin <- fixef(mod_sin)
+
+df_comp <- data.frame(
+  Coeficiente = names(fe_con),
+  Con_sujeto  = round(fe_con, 4),
+  Sin_sujeto  = round(fe_sin, 4),
+  Diferencia  = round(fe_sin - fe_con, 4),
+  Cambio_pct  = round(100 * (fe_sin - fe_con) / abs(fe_con), 2)
+)
+cat("\\n=== COMPARACIÓN DE EFECTOS FIJOS ===\\n")
+print(df_comp, row.names = FALSE)
+
+# Varianzas de efectos aleatorios
+vc_con <- as.data.frame(VarCorr(mod_sleep))
+vc_sin <- as.data.frame(VarCorr(mod_sin))
+cat("\\n=== COMPONENTES DE VARIANZA ===\\n")
+cat("Con sujeto:\\n"); print(vc_con[, c("grp","var1","vcov")])
+cat("Sin sujeto:\\n"); print(vc_sin[, c("grp","var1","vcov")])
+
+# Gráfico: spaghetti con y sin el sujeto influyente
+sleepstudy$influyente <- ifelse(sleepstudy$Subject == suj_max,
+                                 "Influyente", "Resto")
+ggplot(sleepstudy, aes(x = Days, y = Reaction, group = Subject,
+                        color = influyente, size = influyente)) +
+  geom_line(alpha = 0.7) +
+  geom_point() +
+  scale_color_manual(values = c("Influyente" = "firebrick", "Resto" = "steelblue")) +
+  scale_size_manual(values  = c("Influyente" = 1.5, "Resto" = 0.5)) +
+  labs(title = paste("Sujeto influyente:", suj_max),
+       subtitle = "La trayectoria de este sujeto se aparta notablemente del patrón general",
+       x = "Días de privación de sueño", y = "Tiempo de reacción (ms)") +
+  theme_bw()`}
+/>

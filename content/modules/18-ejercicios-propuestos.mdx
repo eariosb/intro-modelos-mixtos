@@ -1,0 +1,584 @@
+---
+title: "Ejercicios Propuestos"
+slug: "ejercicios-propuestos"
+subtitle: "Aplica todo lo aprendido: análisis descriptivo, especificación, ajuste y diagnóstico de modelos mixtos."
+objective:
+  - "Aplicar el flujo completo de análisis con modelos mixtos a datos reales."
+  - "Seleccionar la estructura de efectos aleatorios y covarianza apropiada para cada diseño."
+  - "Interpretar los parámetros del modelo en el contexto del problema."
+  - "Practicar el diagnóstico de residuos y la detección de outliers."
+order: 18
+datasets:
+  - "Enalapril (Chen et al., 1999) — ensayo clínico longitudinal"
+  - "Clínicas (Booth y Hobert, 1998) — datos binarios en clústers"
+  - "Pilas alcalinas (Correa y Salazar, 2016) — medidas repetidas"
+---
+
+## Cómo usar este módulo
+
+Cada ejercicio sigue la misma estructura:
+
+1. **Enunciado**: descripción del problema y los datos (tomados del Capítulo 8 del libro de Correa y Salazar, 2016).
+2. **Carga de datos**: celda R ejecutable con los datos ya cargados.
+3. **Tu turno**: celda en blanco para que escribas tu código.
+4. **Ver solución**: acordeón colapsado con la solución comentada.
+
+<Callout type="tip" title="Flujo recomendado para cada ejercicio">
+  1. **Descriptivo**: estadísticos de resumen y gráfico de perfiles (*spaghetti plot*). 2. **Especificar**: escribe el modelo matemático antes de programarlo. 3. **Ajustar**: usa `lmer()` o `lme()` con la estructura que justifiques. 4. **Diagnosticar**: residuos DHARMa, valores influyentes. 5. **Interpretar**: redacta una conclusión dirigida a un no-estadístico.
+</Callout>
+
+---
+
+## Ejercicio 8.1 — Tratamiento con Enalapril
+
+### Enunciado
+
+Chen et al. (1999) presentan datos de un experimento para determinar si el **Enalapril** podría reducir la tasa de degeneración de los riñones en pacientes diabéticos. Los sujetos fueron asignados aleatoriamente a un grupo de Enalapril (tratamiento, n = 11) o a un grupo control (n = 11). Se midió la **tasa de filtración glomerular (GFR)** al inicio del estudio y cada 3 meses durante 18 meses (7 mediciones: meses 0, 3, 6, 9, 12, 15, 18).
+
+**Hipótesis de investigación**: la GFR en el grupo Enalapril no decrecería tan rápidamente como en el grupo control.
+
+**Preguntas a responder:**
+
+- ¿Existe una diferencia significativa en la **tendencia de cambio** de la GFR entre los dos grupos?
+- ¿Cómo varía la trayectoria individual entre pacientes dentro de cada grupo?
+- ¿Qué estructura de efectos aleatorios es más apropiada?
+
+### Datos
+
+<RCell id="ex81-datos" title="Ejercicio 8.1: Cargar datos de Enalapril" code={`# Datos del ejercicio 8.1 (Tabla 8.1, Correa y Salazar, 2016)
+# GFR: Tasa de Filtración Glomerular (ml/min)
+
+enalapril <- data.frame(
+  sujeto = rep(1:22, each = 7),
+  mes    = rep(c(0, 3, 6, 9, 12, 15, 18), times = 22),
+  grupo  = rep(c(rep("Tratamiento", 11), rep("Control", 11)), each = 7),
+  GFR    = c(
+    # Grupo Tratamiento (sujetos 1-11)
+    65.7, 65.2, 64.8, 74.9, 58.8, 60.5, 56.6,
+    26.8, 25.3, 22.6, 24.3, 20.4, 19.1, 20.6,
+    50.2, 44.2, 44.0, 44.4, 44.5, 41.9, 37.6,
+    93.6, 72.6, 87.9, 91.3, 96.5,101.3,104.4,
+    44.0, 47.0, 88.0, 44.8, 38.9, 29.2, 40.6,
+    62.5, 67.3, 59.5, 38.7, 50.0, 36.4, 34.5,
+    70.6, 71.0, 70.8, 81.8, 61.6, 74.0, 71.1,
+   100.4,106.0,100.1,101.2, 98.2,105.4, 88.0,
+   104.6,100.0, 88.2, 82.1, 95.5, 87.2,113.4,
+    89.2, 93.1, 31.7, 80.8, 70.9, 86.0, 74.0,
+    32.5, 31.3, 27.9, 27.8, 20.5, 23.7, 21.6,
+    # Grupo Control (sujetos 12-22)
+    54.0, 51.1, 49.3, 38.7, 49.5, 41.3, 55.0,
+    71.0, 72.2, 71.2, 52.8, 62.0, 70.7, 69.0,
+   103.0, 92.7, 98.9, 83.1,114.3,105.7, 82.8,
+   107.0, 66.6, 77.5, 53.0, 80.7, 52.4, 61.4,
+    55.3, 43.1, 55.4, 44.2, 36.7, 38.4, 35.1,
+    54.6, 37.3, 33.9, 36.0, 40.2, 36.0, 32.0,
+    88.3, 65.0, 63.8, 77.9, 69.6, 71.5, 75.0,
+    51.0, 41.2, 41.4, 40.6, 39.9, 39.1, 39.1,
+    46.0, 39.2, 44.7, 45.3, 49.8, 48.5, 55.7,
+    60.6, 57.0, 62.3, 68.4, 59.3, 60.2, 68.9,
+    29.3, 29.3, 26.9, 17.3, 25.3, 40.2, 30.8
+  )
+)
+enalapril$sujeto <- factor(enalapril$sujeto)
+enalapril$grupo  <- factor(enalapril$grupo, levels = c("Control", "Tratamiento"))
+
+cat("Estructura del dataset:\\n")
+str(enalapril)
+cat("\\nPrimeras filas:\\n")
+head(enalapril, 14)
+
+# Gráfico exploratorio inicial
+library(ggplot2)
+ggplot(enalapril, aes(x = mes, y = GFR, group = sujeto, color = grupo)) +
+  geom_line(alpha = 0.5) +
+  geom_point(size = 1.5) +
+  facet_wrap(~ grupo) +
+  stat_smooth(aes(group = grupo), method = "lm", se = TRUE, color = "black",
+              linewidth = 1.2) +
+  labs(title = "Ejercicio 8.1: GFR a lo largo del tiempo por grupo",
+       x = "Meses", y = "GFR (ml/min)") +
+  theme_bw() + theme(legend.position = "none")`}
+/>
+
+### Tu turno — Escribe tu solución
+
+<RCell id="ex81-tuturno" title="Tu turno: ajusta el modelo para los datos de Enalapril" code={`# Carga los paquetes que necesites
+library(lme4)
+library(lmerTest)
+
+# Escribe aquí tu código:
+# 1. Analisis descriptivo: media y DE de GFR por grupo y mes
+# 2. Especifica el modelo mixto apropiado
+# 3. Ajusta el modelo con lmer() o lme()
+# 4. Interpreta los coeficientes de la interacción grupo x tiempo
+# 5. Verifica los supuestos con DHARMa
+
+# Tu código aquí...
+`}
+/>
+
+<SASAccordion title="Ver solución completa — Ejercicio 8.1" code={`# ====================================================
+# SOLUCIÓN EJERCICIO 8.1 — Enalapril
+# ====================================================
+
+library(lme4)
+library(lmerTest)
+library(ggplot2)
+library(DHARMa)
+
+# Re-cargar datos (copiar el bloque anterior si es necesario)
+
+# ---- 1. Análisis descriptivo ----
+cat("=== ESTADÍSTICOS DESCRIPTIVOS ===\n")
+agg <- aggregate(GFR ~ grupo + mes, data = enalapril, FUN = function(x)
+  c(media = round(mean(x), 2), de = round(sd(x), 2)))
+print(agg)
+
+# ---- 2. Modelo mixto: intercepto y pendiente aleatoria ----
+# La interacción mes:grupo captura la diferencia en tasas de cambio
+mod_enala <- lmer(GFR ~ mes * grupo + (mes | sujeto),
+                  data = enalapril, REML = TRUE)
+cat("\n=== SUMMARY DEL MODELO ===\n")
+print(summary(mod_enala))
+
+# ---- 3. Prueba de la interacción (efecto de interés) ----
+cat("\n=== INFERENCIA SOBRE EFECTOS FIJOS ===\n")
+print(anova(mod_enala))
+
+# ---- 4. Pendientes estimadas por grupo ----
+fe <- fixef(mod_enala)
+cat(sprintf("\nPendiente estimada (GFR/mes):\n"))
+cat(sprintf("  Control:     %.3f ml/min por mes\n", fe["mes"]))
+cat(sprintf("  Tratamiento: %.3f ml/min por mes\n", fe["mes"] + fe["mes:grupoTratamiento"]))
+cat(sprintf("  Diferencia:  %.3f (interacción, p-value en anova)\n",
+            fe["mes:grupoTratamiento"]))
+
+# ---- 5. Gráfico de predicciones ----
+enalapril$pred <- predict(mod_enala, re.form = NA)  # curva poblacional
+ggplot(enalapril, aes(x = mes, y = GFR, group = sujeto, color = grupo)) +
+  geom_line(alpha = 0.3) +
+  geom_line(aes(y = pred, group = grupo), linewidth = 1.4) +
+  facet_wrap(~ grupo) +
+  labs(title = "Enalapril — GFR observada y predicción poblacional",
+       x = "Meses", y = "GFR (ml/min)") +
+  theme_bw() + theme(legend.position = "none")
+
+# ---- 6. Diagnóstico ----
+sim <- simulateResiduals(mod_enala, n = 500)
+plot(sim, main = "DHARMa — Ejercicio 8.1")
+
+# ---- Interpretación ----
+cat("\n=== CONCLUSIÓN ===\n")
+cat("La pendiente del grupo Control es", round(fe['mes'], 3), "ml/min/mes.\n")
+cat("La pendiente del grupo Tratamiento es",
+    round(fe['mes'] + fe['mes:grupoTratamiento'], 3), "ml/min/mes.\n")
+cat("La interacción mes:grupo tiene p-valor (ver tabla anova).\n")
+cat("Un p-valor < 0.05 indicaría que el Enalapril modifica\n")
+cat("significativamente la tasa de cambio de la GFR.\n")`} />
+
+---
+
+## Ejercicio 8.2 — Resultados de tratamientos en clínicas
+
+### Enunciado
+
+Booth y Hobert (1998) presentan datos de **8 clínicas** que aplicaron dos tratamientos. En cada clínica se registra el número de éxitos y el total de pacientes tratados con cada tratamiento (datos binarios agrupados). El interés es comparar la efectividad de los dos tratamientos **controlando la heterogeneidad entre clínicas**.
+
+**Preguntas a responder:**
+
+- ¿Hay diferencia significativa en la probabilidad de éxito entre los dos tratamientos?
+- ¿Cuánta variabilidad hay entre clínicas (varianza del efecto aleatorio)?
+- ¿El efecto del tratamiento es consistente entre clínicas, o hay interacción tratamiento × clínica?
+
+<RCell id="ex82-datos" title="Ejercicio 8.2: Cargar datos de clínicas" code={`# Datos ejercicio 8.2 (Tabla 8.2, Correa y Salazar, 2016)
+# Exitoso / Total en cada clínica por tratamiento
+
+clinicas <- data.frame(
+  clinica    = rep(1:8, times = 2),
+  tratamiento = rep(c("Trt1", "Trt2"), each = 8),
+  exitos     = c(11, 16, 14,  2,  6,  1, 1, 4,   # Tratamiento 1
+                 10, 22,  7,  1,  0,  0, 1, 6),   # Tratamiento 2
+  total      = c(36, 20, 19, 16, 17, 11, 5, 6,    # Tratamiento 1
+                 37, 32, 19, 17, 12, 10, 9, 7),    # Tratamiento 2
+  fracasos   = NULL
+)
+clinicas$fracasos    <- clinicas$total - clinicas$exitos
+clinicas$prop_exito  <- clinicas$exitos / clinicas$total
+clinicas$clinica     <- factor(clinicas$clinica)
+clinicas$tratamiento <- factor(clinicas$tratamiento)
+
+cat("Datos de clínicas:\\n")
+print(clinicas)
+
+# Gráfico de proporciones
+library(ggplot2)
+ggplot(clinicas, aes(x = clinica, y = prop_exito, fill = tratamiento)) +
+  geom_col(position = "dodge") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "Proporción de éxitos por clínica y tratamiento",
+       x = "Clínica", y = "Proporción de éxitos", fill = "Tratamiento") +
+  theme_bw()`}
+/>
+
+<RCell id="ex82-tuturno" title="Tu turno: GLMM para datos de clínicas" code={`# Hint: usa glmer() con familia binomial
+# Estructura sugerida: éxitos/total ~ tratamiento + (1 | clinica)
+# También considera: (tratamiento | clinica) si sospechas heterogeneidad en el efecto
+
+library(lme4)
+
+# Tu código aquí...
+`}
+/>
+
+<SASAccordion title="Ver solución completa — Ejercicio 8.2" code={`# ====================================================
+# SOLUCIÓN EJERCICIO 8.2 — Tratamientos en clínicas
+# ====================================================
+
+library(lme4)
+library(lmerTest)
+
+# ---- Modelo GLMM con intercepto aleatorio por clínica ----
+# cbind(exitos, fracasos) ~ tratamiento + (1 | clinica)
+mod_clinic_a <- glmer(
+  cbind(exitos, fracasos) ~ tratamiento + (1 | clinica),
+  data   = clinicas,
+  family = binomial(link = "logit")
+)
+
+cat("=== MODELO A: intercepto aleatorio ===\n")
+print(summary(mod_clinic_a))
+
+# ---- Modelo con pendiente aleatoria (tratamiento varía entre clínicas) ----
+mod_clinic_b <- tryCatch(
+  glmer(cbind(exitos, fracasos) ~ tratamiento + (tratamiento | clinica),
+        data = clinicas, family = binomial,
+        control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 2e5))),
+  error = function(e) {
+    cat("Modelo B no convergió:", conditionMessage(e), "\n")
+    NULL
+  }
+)
+
+# ---- Comparación de modelos ----
+if (!is.null(mod_clinic_b)) {
+  cat("\n=== COMPARACIÓN A vs B ===\n")
+  print(anova(mod_clinic_a, mod_clinic_b))
+}
+
+# ---- Interpretación de coeficientes ----
+fe <- fixef(mod_clinic_a)
+cat("\n=== PROBABILIDADES ESTIMADAS ===\n")
+cat(sprintf("Trt1 — log-odds: %.3f | prob: %.3f\n", fe[1], plogis(fe[1])))
+cat(sprintf("Trt2 — log-odds: %.3f | prob: %.3f\n",
+            fe[1] + fe[2], plogis(fe[1] + fe[2])))
+cat(sprintf("Diferencia en log-odds (Trt2 vs Trt1): %.3f (OR = %.3f)\n",
+            fe[2], exp(fe[2])))
+
+# ---- Efectos aleatorios ----
+cat("\n=== EFECTOS ALEATORIOS POR CLÍNICA ===\n")
+print(ranef(mod_clinic_a)$clinica)
+cat(sprintf("Varianza entre clínicas: %.4f (SD = %.4f)\n",
+            as.numeric(VarCorr(mod_clinic_a)$clinica),
+            sqrt(as.numeric(VarCorr(mod_clinic_a)$clinica))))`} />
+
+---
+
+## Ejercicio 8.3 — Duración de pilas alcalinas
+
+### Enunciado
+
+Se seleccionaron **6 marcas de pilas alcalinas** (RAYOVAC, DURACELL, VARTA, EVEREADY, PANASONIC y ENERGIZER), tomando 2 pilas de cada marca. Las 12 pilas se descargaron en un sistema con resistencias paralelas y se registró la disminución del voltaje (milivoltios) cada hora durante 11 horas (mediciones en horas 0–11).
+
+**Preguntas a responder:**
+
+- ¿Difieren significativamente las marcas en su **tasa de descarga** (pendiente)?
+- ¿Hay diferencias en el **voltaje inicial** (intercepto) entre marcas?
+- ¿El modelo más apropiado es lineal o no lineal?
+
+<RCell id="ex83-datos" title="Ejercicio 8.3: Cargar datos de pilas alcalinas" code={`# Datos ejercicio 8.3 (Tabla 8.3, Correa y Salazar, 2016)
+# Voltaje (milivoltios) por hora, 2 pilas por marca
+
+pilas_raw <- list(
+  RAYOVAC   = c(1217,1288, 1181,1248, 1077,1170, 1040,1148, 1043,1099,
+                1004,1047,  949, 968,  874, 870,  780, 740,  641, 618,
+                 62,  62,   50,  58),
+  DURACELL  = c(1419,1450, 1359,1393, 1284,1296, 1222,1235, 1173,1178,
+                1103,1106,  877, 814,  456, 148,  107, 112,   89,  84,
+                 61,  71,   61,  75),
+  VARTA     = c(1430,1308, 1207,1150, 1112,1052, 1056, 993, 1025, 953,
+                 992, 917,  952, 818,  870, 805,  246, 172,   96,  77,
+                 69,  60,   64,  60),
+  EVEREADY  = c(1276,1212, 1086,1001, 1034, 955,  992, 910,  939, 844,
+                 886, 844,  825, 788,  693, 679, 118.8,142.3, 75.5,75.1,
+                 64.7,63.4, 61.2,61.5),
+  PANASONIC = c(1217,1279, 1005,1044,  943, 980,  897, 958,  871, 930,
+                 804, 879,  718, 823,  602, 736,  718, 612,  602, 95.5,
+                117.6,73,   81.7,70.3),
+  ENERGIZER = c(1295,1268, 1102,1060, 1036, 995, 1000, 962,  954, 930,
+                 934, 905,  874, 853,  759, 763,  166, 109.2, 75.4,70.4,
+                 62.6,66,   60.1,65.1)
+)
+
+# Convertir a formato largo
+pilas <- do.call(rbind, lapply(names(pilas_raw), function(marca) {
+  v <- pilas_raw[[marca]]
+  data.frame(
+    marca = marca,
+    pila  = rep(1:2, times = 12),
+    hora  = rep(0:11, each = 2),
+    voltaje = v
+  )
+}))
+pilas$pila_id <- factor(paste(pilas$marca, pilas$pila, sep = "_"))
+pilas$marca   <- factor(pilas$marca)
+
+cat("Dataset pilas:\n")
+str(pilas)
+
+# Gráfico exploratorio
+library(ggplot2)
+ggplot(pilas, aes(x = hora, y = voltaje, group = pila_id, color = marca)) +
+  geom_line(alpha = 0.7) +
+  geom_point(size = 1.5) +
+  facet_wrap(~ marca, nrow = 2) +
+  labs(title = "Voltaje de pilas alcalinas a lo largo del tiempo",
+       x = "Hora", y = "Voltaje (mV)") +
+  theme_bw() +
+  theme(legend.position = "none")`}
+/>
+
+<RCell id="ex83-tuturno" title="Tu turno: modelo mixto para pilas alcalinas" code={`# Hints:
+# - Las pilas están anidadas dentro de marcas (marca es el factor de agrupación)
+# - Considera si la caída de voltaje es lineal en toda la escala de tiempo
+# - Para el modelo lineal: lme(voltaje ~ hora * marca, random = ~ hora | pila_id)
+# - Alternativa: subconjunto de las primeras 8 horas (comportamiento más lineal)
+
+library(nlme)
+library(ggplot2)
+
+# Tu código aquí...
+`}
+/>
+
+<SASAccordion title="Ver solución completa — Ejercicio 8.3" code={`# ====================================================
+# SOLUCIÓN EJERCICIO 8.3 — Pilas alcalinas
+# ====================================================
+library(nlme)
+library(ggplot2)
+
+# Subsetting horas 0-8 donde el comportamiento es más lineal
+pilas_lin <- pilas[pilas$hora <= 8, ]
+
+# ---- Modelo con pendiente e intercepto aleatorios por pila ----
+# marca es el efecto fijo (comparación entre marcas)
+# pila_id es la unidad de muestreo
+mod_pilas <- lme(
+  voltaje ~ hora * marca,
+  data   = pilas_lin,
+  random = ~ hora | pila_id,
+  method = "REML"
+)
+
+cat("=== EFECTOS FIJOS ===\n")
+print(summary(mod_pilas)$tTable)
+
+# ---- Pendientes estimadas por marca ----
+fe <- fixef(mod_pilas)
+marcas <- levels(pilas$marca)
+pendientes <- c(
+  DURACELL  = fe["hora"] + fe["hora:marcaDURACELL"],
+  ENERGIZER = fe["hora"] + fe["hora:marcaENERGIZER"],
+  EVEREADY  = fe["hora"] + fe["hora:marcaEVEREADY"],
+  PANASONIC = fe["hora"] + fe["hora:marcaPANASONIC"],
+  RAYOVAC   = fe["hora"],  # referencia
+  VARTA     = fe["hora"] + fe["hora:marcaVARTA"]
+)
+
+cat("\n=== PENDIENTES (mV/hora) POR MARCA ===\n")
+print(sort(round(pendientes, 1)))
+
+# ---- Gráfico de predicciones ----
+pilas_lin$pred <- predict(mod_pilas, level = 0)  # solo efectos fijos
+ggplot(pilas_lin, aes(x = hora, color = marca)) +
+  geom_line(aes(y = voltaje, group = pila_id), alpha = 0.3) +
+  geom_line(aes(y = pred, group = marca), linewidth = 1.2) +
+  labs(title = "Pilas — Voltaje observado y predicción por marca",
+       subtitle = "Líneas gruesas: predicción poblacional por marca",
+       x = "Hora", y = "Voltaje (mV)") +
+  theme_bw()
+
+# ---- Prueba de diferencias entre marcas ----
+cat("\n=== ANOVA DE EFECTOS FIJOS ===\n")
+print(anova(mod_pilas))
+cat("\nUna interacción significativa hora:marca indica que las marcas\n")
+cat("tienen tasas de descarga estadísticamente diferentes.\n")`} />
+
+---
+
+## Ejercicio Adicional A — Crecimiento de plantas bajo distintos tratamientos
+
+### Enunciado
+
+Un ensayo de crecimiento de plantas registra la altura (cm) de 30 plantas, medidas semanalmente durante 8 semanas. Las plantas fueron asignadas a 3 grupos: **Fertilizante A**, **Fertilizante B** y **Control**. El interés es comparar las **tasas de crecimiento** entre grupos y evaluar si hay heterogeneidad entre plantas dentro de cada grupo.
+
+<RCell id="exA-datos" title="Ejercicio A: Simular y explorar datos de crecimiento de plantas" code={`set.seed(2024)
+
+# Parámetros del experimento
+n_plantas <- 10   # por grupo
+n_semanas <- 8
+grupos <- c("Control", "FertA", "FertB")
+
+# Efectos fijos: intercepto, pendiente por grupo
+beta0 <- 5           # altura inicial promedio
+beta_ctrl <- 2.0     # pendiente Control
+beta_A    <- 3.0     # pendiente FertA (mayor crecimiento)
+beta_B    <- 2.5     # pendiente FertB (crecimiento intermedio)
+
+# Efectos aleatorios: varianza entre plantas
+sigma_b0 <- 1.5  # varianza del intercepto aleatorio
+sigma_b1 <- 0.3  # varianza de la pendiente aleatoria
+sigma_e  <- 0.8  # varianza residual
+
+plantas_df <- do.call(rbind, lapply(1:length(grupos), function(g) {
+  pendiente <- c(beta_ctrl, beta_A, beta_B)[g]
+  do.call(rbind, lapply(1:n_plantas, function(p) {
+    id_planta <- (g - 1) * n_plantas + p
+    b0_i <- rnorm(1, 0, sigma_b0)
+    b1_i <- rnorm(1, 0, sigma_b1)
+    semana <- 1:n_semanas
+    altura <- (beta0 + b0_i) + (pendiente + b1_i) * semana +
+              rnorm(n_semanas, 0, sigma_e)
+    data.frame(planta = factor(id_planta), grupo = grupos[g],
+               semana = semana, altura = altura)
+  }))
+}))
+plantas_df$grupo <- factor(plantas_df$grupo, levels = c("Control", "FertA", "FertB"))
+
+cat("Estructura del dataset:\\n")
+str(plantas_df)
+
+library(ggplot2)
+ggplot(plantas_df, aes(x = semana, y = altura, group = planta, color = grupo)) +
+  geom_line(alpha = 0.4) +
+  geom_point(size = 1.2) +
+  facet_wrap(~ grupo) +
+  stat_smooth(aes(group = grupo), method = "lm", se = FALSE,
+              color = "black", linewidth = 1.3) +
+  labs(title = "Crecimiento de plantas por grupo de tratamiento",
+       x = "Semana", y = "Altura (cm)") +
+  theme_bw() +
+  theme(legend.position = "none")`}
+/>
+
+<RCell id="exA-tuturno" title="Tu turno: analiza los datos de crecimiento de plantas" code={`# Objetivos:
+# 1. Ajusta un LMM con interacción semana:grupo
+# 2. Prueba si las pendientes difieren entre grupos (interacción)
+# 3. Estima las pendientes por grupo con intervalos de confianza
+# 4. Verifica si la estructura aleatoria (pendiente aleatoria) mejora el ajuste
+
+library(lme4)
+library(lmerTest)
+
+# Tu código aquí...
+`}
+/>
+
+<SASAccordion title="Ver solución completa — Ejercicio A (plantas)" code={`# ====================================================
+# SOLUCIÓN EJERCICIO A — Crecimiento de plantas
+# ====================================================
+library(lme4)
+library(lmerTest)
+
+# ---- Modelo A: solo intercepto aleatorio ----
+mod_A <- lmer(altura ~ semana * grupo + (1 | planta),
+              data = plantas_df, REML = FALSE)
+
+# ---- Modelo B: intercepto y pendiente aleatoria ----
+mod_B <- lmer(altura ~ semana * grupo + (semana | planta),
+              data = plantas_df, REML = FALSE)
+
+# ---- Comparar modelos ----
+cat("=== COMPARACIÓN DE ESTRUCTURA ALEATORIA ===\n")
+print(anova(mod_A, mod_B))
+
+# Usar el mejor modelo para inferencia (REML)
+mod_final <- lmer(altura ~ semana * grupo + (semana | planta),
+                  data = plantas_df, REML = TRUE)
+
+cat("\n=== EFECTOS FIJOS (modelo final) ===\n")
+print(summary(mod_final)$coefficients)
+
+cat("\n=== ANOVA: PRUEBA DE LA INTERACCIÓN ===\n")
+print(anova(mod_final))  # requiere lmerTest
+
+# ---- Pendientes por grupo ----
+fe <- fixef(mod_final)
+cat("\n=== PENDIENTES ESTIMADAS (cm/semana) ===\n")
+cat(sprintf("Control: %.3f\n", fe["semana"]))
+cat(sprintf("FertA:   %.3f\n", fe["semana"] + fe["semana:grupoFertA"]))
+cat(sprintf("FertB:   %.3f\n", fe["semana"] + fe["semana:grupoFertB"]))`} />
+
+---
+
+## Ejercicio Adicional B — Ensayo clínico simulado con datos faltantes
+
+### Enunciado
+
+Simula un ensayo clínico con 40 sujetos (20 por grupo), 6 visitas, y presencia de datos faltantes (dropout aleatorio). Ajusta un LMM con estructura CS y evalúa si el patrón de datos faltantes afecta las conclusiones (**análisis de sensibilidad**).
+
+<RCell id="exB-simulacion" title="Ejercicio B: Simular ensayo clínico con dropout" code={`set.seed(42)
+library(lme4)
+library(ggplot2)
+
+n_suj <- 20  # por grupo
+n_vis <- 6
+
+# Simular datos completos
+sim_ensayo <- do.call(rbind, lapply(1:(2 * n_suj), function(i) {
+  grupo <- ifelse(i <= n_suj, "Placebo", "Activo")
+  pendiente <- ifelse(grupo == "Activo", -2.5, -0.5)  # el activo mejora más
+  b0 <- rnorm(1, 0, 5)  # intercepto aleatorio
+  b1 <- rnorm(1, 0, 0.5)  # pendiente aleatoria
+  data.frame(
+    sujeto  = factor(i),
+    visita  = 0:5,
+    grupo   = grupo,
+    respuesta = 50 + b0 + (pendiente + b1) * (0:5) + rnorm(6, 0, 3)
+  )
+}))
+sim_ensayo$grupo <- factor(sim_ensayo$grupo)
+
+# Introducir dropout aleatorio (20% por visita > 0)
+dropout_mask <- runif(nrow(sim_ensayo)) > 0.85
+dropout_mask[sim_ensayo$visita == 0] <- FALSE  # baseline siempre presente
+sim_dropout <- sim_ensayo
+sim_dropout$respuesta[dropout_mask] <- NA
+
+cat(sprintf("Observaciones completas: %d / %d (%.1f%% presentes)\\n",
+            sum(!is.na(sim_dropout$respuesta)),
+            nrow(sim_dropout),
+            100 * mean(!is.na(sim_dropout$respuesta))))
+
+# Comparación: análisis completo vs. con datos faltantes
+mod_completo <- lmer(respuesta ~ visita * grupo + (visita | sujeto),
+                     data = sim_ensayo, REML = TRUE)
+mod_dropout  <- lmer(respuesta ~ visita * grupo + (visita | sujeto),
+                     data = sim_dropout, REML = TRUE,
+                     na.action = na.omit)
+
+cat("\\n=== PENDIENTE INTERACCIÓN: DATOS COMPLETOS vs. DROPOUT ===\\n")
+fe_c <- fixef(mod_completo)["visita:grupoPlacebo"]
+fe_d <- fixef(mod_dropout)["visita:grupoPlacebo"]
+cat(sprintf("Datos completos: coef = %.4f\\n", fe_c))
+cat(sprintf("Con dropout:     coef = %.4f\\n", fe_d))
+cat(sprintf("Diferencia:      %.4f (%.1f%%)\\n",
+            abs(fe_c - fe_d), 100 * abs(fe_c - fe_d) / abs(fe_c)))`}
+/>
+
+---
+
+## Referencias del módulo
+
+- **Correa, J. C. y Salazar, J. C. (2016).** *Introducción a los modelos mixtos.* Universidad Nacional de Colombia, Sede Medellín. [Capítulo 8: Ejercicios propuestos, pp. 207–209].
+- **Chen, Y. Q. et al. (1999).** Non-linear perturbation model for longitudinal data. *Statistics in Medicine*, 18, 1975–1987. [Datos de Enalapril, ejercicio 8.1].
+- **Booth, J. G. y Hobert, J. P. (1998).** Standard errors of prediction in generalized linear mixed models. *Journal of the American Statistical Association*, 93, 262–272. [Datos de clínicas, ejercicio 8.2].

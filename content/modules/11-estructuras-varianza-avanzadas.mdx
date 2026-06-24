@@ -444,7 +444,6 @@ ggplot(data.frame(residuos = residuos), aes(sample = residuos)) +
 
 **Respuesta:** φ es el parámetro de autocorrelación de AR(1). Un valor de 0.9 indica que las mediciones adyacentes en el tiempo están muy fuertemente correlacionadas (correlación de 0.9), y esa correlación decae a medida que aumenta la distancia temporal: corr(t, t+2) = 0.9² = 0.81, corr(t, t+3) = 0.9³ ≈ 0.73, etc.
 
-
 ---
 
 ## Quiz
@@ -528,6 +527,7 @@ run;
 | **varPower** | `varPower(form = ~ covariable)` | La desviación estándar es proporcional a una potencia de la covariable. |
 
 Con estas herramientas, ahora podés elegir y justificar la estructura de covarianza más adecuada para tus datos longitudinales, respaldando cada decisión con criterios numéricos y visualizaciones claras.
+
 ---
 
 ## Referencias académicas

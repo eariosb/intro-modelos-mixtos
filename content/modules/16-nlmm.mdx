@@ -1,0 +1,479 @@
+---
+title: "Modelos No Lineales Mixtos (NLMM)"
+slug: "modelos-no-lineales-mixtos"
+subtitle: "Cuando la función de la media no es lineal en los parámetros: ajuste con nlme, valores iniciales y convergencia."
+objective:
+  - "Distinguir un NLMM de un LMM: parámetros que entran de forma no lineal en la función de la media."
+  - "Interpretar los parámetros del modelo logístico (asíntota, punto de inflexión, tasa de crecimiento)."
+  - "Ajustar un NLMM con nlme::nlme() sobre datos de crecimiento de abetos."
+  - "Entender por qué los valores iniciales son críticos y cómo elegirlos gráficamente."
+  - "Comparar la curva poblacional con las curvas individuales predichas."
+order: 16
+datasets:
+  - "SPRUCE1 (crecimiento de abetos Sitka, Control vs Ozono)"
+---
+
+## Del modelo lineal al modelo no lineal: ¿cuándo dar el salto?
+
+En todos los módulos anteriores el modelo tenía la forma general:
+
+$$
+\mathbf{y}_i = \mathbf{X}_i \boldsymbol{\beta} + \mathbf{Z}_i \mathbf{b}_i + \boldsymbol{\varepsilon}_i
+$$
+
+La respuesta es una **función lineal** de los parámetros $\boldsymbol{\beta}$ y $\mathbf{b}_i$. Esto es conveniente computacionalmente y suficiente para muchas aplicaciones, pero en biología, farmacología y ecología los procesos suelen seguir curvas de crecimiento, saturación o decaimiento que **no pueden parametrizarse como combinaciones lineales de las covariables**.
+
+Un **Modelo No Lineal Mixto (NLMM)** generaliza el LMM permitiendo que la función de la media sea no lineal en los parámetros:
+
+$$
+y_{ij} = f(t_{ij}, \boldsymbol{\phi}_i) + \varepsilon_{ij}
+$$
+
+donde $f$ es una función arbitraria (exponencial, logística, Michaelis-Menten, etc.) y los parámetros individuales $\boldsymbol{\phi}_i$ se descomponen en una parte poblacional (efectos fijos) y una parte individual (efectos aleatorios):
+
+$$
+\boldsymbol{\phi}_i = \mathbf{A}_i \boldsymbol{\beta} + \mathbf{B}_i \mathbf{b}_i, \qquad \mathbf{b}_i \sim \mathcal{N}(\mathbf{0}, \mathbf{D})
+$$
+
+<DataTable
+  caption="LMM vs NLMM: diferencias clave"
+  columns={["Aspecto", "LMM", "NLMM"]}
+  rows={[
+    ["Función de la media", "Lineal en β: Xβ + Zb", "No lineal: f(t, φᵢ)"],
+    ["Estimación", "Solución analítica (GLS/REML)", "Algoritmo iterativo (GLS linealizado, Laplace)"],
+    ["Valores iniciales", "No son críticos", "Críticos: convergencia sensible a arranque"],
+    ["Interpretación", "Pendientes e interceptos", "Parámetros con significado físico/biológico directo"],
+    ["Paquetes R", "lmer(), lme()", "nlme(), nlmer() (experimental)"]
+  ]}
+/>
+
+## El modelo logístico de tres parámetros
+
+El modelo que usamos en este módulo —y que es el mismo que Correa y Salazar (2016, Cap. 7) aplican sobre los datos de abetos— es la **función logística de tres parámetros**:
+
+$$
+f(t, \phi_1, \phi_2, \phi_3) = \frac{\phi_1}{1 + \exp\!\left(-\dfrac{t - \phi_2}{\phi_3}\right)}
+$$
+
+Los tres parámetros tienen una interpretación geométrica clara:
+
+<DataTable
+  caption="Interpretación de los parámetros del modelo logístico"
+  columns={["Parámetro", "Nombre", "Interpretación"]}
+  rows={[
+    ["φ₁ (asíntota)", "Capacidad máxima", "Valor límite que alcanza la respuesta cuando t → ∞. En los abetos: tamaño máximo del tronco."],
+    ["φ₂ (punto de inflexión)", "Tiempo de inflexión", "Valor de t en que la curva tiene la pendiente máxima, es decir, cuando el crecimiento es más rápido."],
+    ["φ₃ (escala)", "Tasa de transición", "Controla qué tan 'empinada' es la curva alrededor de φ₂. Valores grandes → curva más suave."]
+  ]}
+/>
+
+<Callout type="info" title="¿Por qué la función logística para crecimiento de árboles?">
+  Los árboles no crecen indefinidamente. Hay una capacidad de carga biológica determinada por luz, nutrientes y espacio. La función logística modela este crecimiento con aceleración inicial, un pico de crecimiento y luego saturación —exactamente el patrón observado en los abetos Sitka.
+</Callout>
+
+## El dataset SPRUCE1: continuidad con módulos anteriores
+
+Usamos el mismo dataset de abetos (*Picea sitchensis*) que en los módulos 4 y 5: 24 árboles (12 en condiciones de control, 12 expuestos a ozono), medidos en 4 momentos (días 152, 174, 201 y 227 desde el inicio del experimento). La variable respuesta es el **log del tamaño del tronco** (`log_size`).
+
+El modelo logístico mixto que se ajusta por separado para cada grupo (Control / Ozono) es:
+
+$$
+\log(\text{tronco})_{ij} = \frac{\beta_1 + b_{1i}}{1 + \exp\left(-\dfrac{t_{ij} - \beta_2}{\beta_3}\right)} + \varepsilon_{ij}
+$$
+
+donde el **intercepto aleatorio actúa sobre la asíntota** $\beta_1$: cada árbol tiene su propia capacidad máxima. Los parámetros de curvatura ($\beta_2$ y $\beta_3$) son fijos (poblacionales).
+
+<Callout type="warning" title="La elección de valores iniciales es el reto principal de los NLMM">
+  A diferencia de los LMM, donde `lmer()` siempre converge, en los NLMM el algoritmo puede divergir o converger a un mínimo local si los valores iniciales están lejos de la solución. La mejor estrategia es arrancar graficando los datos y estimando visualmente los parámetros: la asíntota ≈ valor máximo observado, el punto de inflexión ≈ tiempo donde el crecimiento se acelera más.
+</Callout>
+
+## Cómo elegir valores iniciales gráficamente
+
+Antes de ajustar el modelo, ejecuta la celda siguiente para visualizar los datos y estimar los parámetros iniciales de forma visual.
+
+<RCell id="nlmm-exploracion" title="Paso 1: Exploración visual para elegir valores iniciales" code={`# Cargamos los datos (mismo dataset que módulos 4 y 5)
+spruce <- read.csv(
+  "https://raw.githubusercontent.com/jcsalazaru/datasets/main/SPRUCE1.csv",
+  stringsAsFactors = TRUE
+)
+head(spruce)
+
+# Renombramos columnas para claridad
+names(spruce) <- c("ID", "grupo", "tiempo", "log_size")
+spruce$tiempo <- as.numeric(as.character(spruce$tiempo))
+
+# --- Gráfico de perfiles por grupo ---
+library(ggplot2)
+ggplot(spruce, aes(x = tiempo, y = log_size, group = ID, color = grupo)) +
+  geom_line(alpha = 0.5) +
+  geom_point(size = 2) +
+  facet_wrap(~ grupo) +
+  labs(
+    title = "Perfiles individuales — Log(tamaño del tronco)",
+    subtitle = "La curva de crecimiento se aplana: patrón logístico",
+    x = "Días desde inicio", y = "log(tamaño)"
+  ) +
+  theme_bw() +
+  theme(legend.position = "none")
+
+# Estimación visual de valores iniciales:
+# phi1 (asíntota): el valor máximo observado está alrededor de 6.5 (Control) y 8.7 (Ozono)
+# phi2 (punto inflexión): dada la curva, alrededor del día 150-200
+# phi3 (escala): la curva es bastante suave, phi3 ~ 100-200
+cat("\\nEstadísticos descriptivos por grupo:\\n")
+tapply(spruce$log_size, spruce$grupo, summary)`}
+/>
+
+## Ajuste del NLMM con `nlme`
+
+<RCell id="nlmm-ajuste" title="Paso 2: Ajuste del NLMM por grupo con nlme()" code={`library(nlme)
+
+spruce <- read.csv(
+  "https://raw.githubusercontent.com/jcsalazaru/datasets/main/SPRUCE1.csv",
+  stringsAsFactors = TRUE
+)
+names(spruce) <- c("ID", "grupo", "tiempo", "log_size")
+spruce$tiempo <- as.numeric(as.character(spruce$tiempo))
+
+# --- Definir la función logística ---
+logistic3 <- function(tiempo, A, B, C) {
+  A / (1 + exp(-(tiempo - B) / C))
+}
+
+# --- Ajuste para el grupo Control ---
+spruce_ctrl <- spruce[spruce$grupo == "Control", ]
+
+modelo_ctrl <- tryCatch({
+  nlme(
+    log_size ~ logistic3(tiempo, A, B, C),
+    data     = spruce_ctrl,
+    fixed    = A + B + C ~ 1,
+    random   = A ~ 1 | ID,        # asíntota varía entre árboles
+    start    = c(A = 6.5, B = 180, C = 100),
+    control  = nlmeControl(maxIter = 200, pnlsTol = 0.01)
+  )
+}, error = function(e) {
+  cat("Error en ajuste Control:", conditionMessage(e), "\\n")
+  NULL
+})
+
+if (!is.null(modelo_ctrl)) {
+  cat("=== GRUPO CONTROL ===\\n")
+  print(summary(modelo_ctrl))
+}
+
+# --- Ajuste para el grupo Ozono ---
+spruce_oz <- spruce[spruce$grupo == "Ozono", ]
+
+modelo_oz <- tryCatch({
+  nlme(
+    log_size ~ logistic3(tiempo, A, B, C),
+    data     = spruce_oz,
+    fixed    = A + B + C ~ 1,
+    random   = A ~ 1 | ID,
+    start    = c(A = 8.7, B = 180, C = 100),
+    control  = nlmeControl(maxIter = 200, pnlsTol = 0.01)
+  )
+}, error = function(e) {
+  cat("Error en ajuste Ozono:", conditionMessage(e), "\\n")
+  NULL
+})
+
+if (!is.null(modelo_oz)) {
+  cat("\\n=== GRUPO OZONO ===\\n")
+  print(summary(modelo_oz))
+}`}
+/>
+
+## Interpretación de la salida
+
+Una vez ajustados los modelos, los resultados clave son:
+
+**Efectos fijos** (`Fixed effects`): las estimaciones de $\hat\beta_1$ (asíntota poblacional), $\hat\beta_2$ (punto de inflexión) y $\hat\beta_3$ (escala). Correa y Salazar (2016) reportan $\hat\beta_1 \approx 6.63$ para Control y $\hat\beta_1 \approx 8.73$ para Ozono, lo que indica que los árboles expuestos a ozono tienen una asíntota mayor —crecen más, lo cual es consistente con la hipótesis de que el ozono puede estimular el crecimiento a dosis moderadas.
+
+**Efectos aleatorios** (`Random effects: A`): la varianza $\hat\sigma_{b_1}^2$ captura cuánto difiere la asíntota individual de la poblacional. Un valor grande indica alta heterogeneidad entre árboles en su tamaño máximo potencial.
+
+**Residual** (`sigma`): la varianza $\hat\sigma^2$ del error dentro de cada árbol, una vez descontada la curva ajustada.
+
+## Curvas ajustadas: populacional e individuales
+
+<RCell id="nlmm-curvas" title="Paso 3: Visualizar curvas ajustadas (poblacional e individuales)" code={`library(nlme)
+library(ggplot2)
+
+spruce <- read.csv(
+  "https://raw.githubusercontent.com/jcsalazaru/datasets/main/SPRUCE1.csv",
+  stringsAsFactors = TRUE
+)
+names(spruce) <- c("ID", "grupo", "tiempo", "log_size")
+spruce$tiempo <- as.numeric(as.character(spruce$tiempo))
+
+logistic3 <- function(t, A, B, C) A / (1 + exp(-(t - B) / C))
+
+# Ajustar ambos grupos y graficar
+grupos <- c("Control", "Ozono")
+starts <- list(Control = c(A = 6.5, B = 180, C = 100),
+               Ozono   = c(A = 8.7, B = 180, C = 100))
+
+t_seq <- seq(140, 240, length.out = 100)
+lista_pred <- list()
+
+for (g in grupos) {
+  dat_g <- spruce[spruce$grupo == g, ]
+  mod_g <- tryCatch(
+    nlme(log_size ~ logistic3(tiempo, A, B, C),
+         data = dat_g, fixed = A + B + C ~ 1,
+         random = A ~ 1 | ID, start = starts[[g]],
+         control = nlmeControl(maxIter = 200)),
+    error = function(e) NULL
+  )
+  if (is.null(mod_g)) next
+
+  # Curva poblacional
+  fe <- fixef(mod_g)
+  pop_curve <- data.frame(
+    tiempo = t_seq,
+    pred   = logistic3(t_seq, fe["A"], fe["B"], fe["C"]),
+    grupo  = g, tipo = "Poblacional", ID = "Poblacional"
+  )
+
+  # Curvas individuales
+  re <- ranef(mod_g)
+  ind_curves <- do.call(rbind, lapply(rownames(re), function(id) {
+    A_i <- fe["A"] + re[id, "A"]
+    data.frame(tiempo = t_seq,
+               pred   = logistic3(t_seq, A_i, fe["B"], fe["C"]),
+               grupo  = g, tipo = "Individual", ID = id)
+  }))
+
+  lista_pred[[g]] <- rbind(pop_curve, ind_curves)
+}
+
+pred_df <- do.call(rbind, lista_pred)
+
+ggplot() +
+  geom_line(data = pred_df[pred_df$tipo == "Individual", ],
+            aes(x = tiempo, y = pred, group = ID), color = "steelblue", alpha = 0.4, linewidth = 0.7) +
+  geom_line(data = pred_df[pred_df$tipo == "Poblacional", ],
+            aes(x = tiempo, y = pred), color = "darkred", linewidth = 1.5) +
+  geom_point(data = spruce,
+             aes(x = tiempo, y = log_size), color = "gray30", size = 1.5, alpha = 0.7) +
+  facet_wrap(~ grupo) +
+  labs(title = "NLMM logístico — Curvas ajustadas",
+       subtitle = "Rojo: curva poblacional  |  Azul: curvas individuales",
+       x = "Días", y = "log(tamaño)") +
+  theme_bw()`}
+/>
+
+## Impacto de los valores iniciales en la convergencia
+
+La siguiente celda demuestra experimentalmente qué ocurre cuando los valores iniciales están lejos de la solución. Puedes modificar los valores de `A_ini`, `B_ini` y `C_ini` para explorar la sensibilidad.
+
+<RCell id="nlmm-convergencia" title="Paso 4: Sensibilidad a los valores iniciales" code={`library(nlme)
+
+spruce <- read.csv(
+  "https://raw.githubusercontent.com/jcsalazaru/datasets/main/SPRUCE1.csv",
+  stringsAsFactors = TRUE
+)
+names(spruce) <- c("ID", "grupo", "tiempo", "log_size")
+spruce$tiempo <- as.numeric(as.character(spruce$tiempo))
+spruce_ctrl <- spruce[spruce$grupo == "Control", ]
+
+logistic3 <- function(t, A, B, C) A / (1 + exp(-(t - B) / C))
+
+# --- Modifica estos valores para explorar la convergencia ---
+A_ini <- 6.5    # cerca de la solución (~6.6)
+B_ini <- 180    # razonable
+C_ini <- 100    # razonable
+
+# Valores muy lejanos descomentando estas líneas:
+# A_ini <- 20; B_ini <- 500; C_ini <- 5   # <- problema de convergencia
+
+cat(sprintf("Valores iniciales: A=%.1f, B=%.1f, C=%.1f\\n", A_ini, B_ini, C_ini))
+
+resultado <- tryCatch({
+  mod <- nlme(
+    log_size ~ logistic3(tiempo, A, B, C),
+    data    = spruce_ctrl,
+    fixed   = A + B + C ~ 1,
+    random  = A ~ 1 | ID,
+    start   = c(A = A_ini, B = B_ini, C = C_ini),
+    control = nlmeControl(maxIter = 100, msVerbose = FALSE)
+  )
+  cat("\\n✓ CONVERGENCIA EXITOSA\\n")
+  cat("Estimaciones de efectos fijos:\\n")
+  print(round(fixef(mod), 4))
+  cat("\\nDesviación estándar del efecto aleatorio (A):\\n")
+  cat(sprintf("  σ_b1 = %.4f\\n", as.numeric(VarCorr(mod)[1, "StdDev"])))
+  cat(sprintf("  σ    = %.4f (residual)\\n", mod$sigma))
+}, error = function(e) {
+  cat("\\n✗ NO CONVERGIÓ\\n")
+  cat("Mensaje:", conditionMessage(e), "\\n")
+  cat("\\nConsejo: prueba valores iniciales más cercanos a la solución.\\n")
+  cat("Estrategia: grafica los datos y estima visualmente phi1 ≈ máximo,\\n")
+  cat("phi2 ≈ tiempo de máxima pendiente, phi3 ≈ 50-200.\\n")
+})`}
+/>
+
+<Callout type="tip" title="Estrategia práctica para valores iniciales">
+  1. **φ₁ (asíntota)**: toma el valor máximo observado en los datos multiplicado por 1.1.
+  2. **φ₂ (punto de inflexión)**: observa gráficamente dónde la pendiente de los perfiles es máxima.
+  3. **φ₃ (escala)**: empieza con un valor entre 50 y 200 y ajusta si no converge.
+  4. Si el modelo no converge, reduce la tolerancia (`pnlsTol`) o prueba `nlmeControl(pnlsMaxIter = 20, msMaxIter = 100)`.
+</Callout>
+
+## Comparación con el LMM: ¿cuándo vale la pena el NLMM?
+
+<RCell id="nlmm-vs-lmm" title="Comparación NLMM vs LMM para los datos de abetos (grupo Control)" code={`library(nlme)
+library(ggplot2)
+
+spruce <- read.csv(
+  "https://raw.githubusercontent.com/jcsalazaru/datasets/main/SPRUCE1.csv",
+  stringsAsFactors = TRUE
+)
+names(spruce) <- c("ID", "grupo", "tiempo", "log_size")
+spruce$tiempo <- as.numeric(as.character(spruce$tiempo))
+spruce_ctrl <- spruce[spruce$grupo == "Control", ]
+
+logistic3 <- function(t, A, B, C) A / (1 + exp(-(t - B) / C))
+
+# LMM con pendiente aleatoria (Modulo 4)
+mod_lmm <- lme(log_size ~ tiempo, data = spruce_ctrl,
+               random = ~ tiempo | ID, method = "ML")
+
+# NLMM logístico
+mod_nlmm <- tryCatch(
+  nlme(log_size ~ logistic3(tiempo, A, B, C),
+       data = spruce_ctrl, fixed = A + B + C ~ 1,
+       random = A ~ 1 | ID, start = c(A = 6.5, B = 180, C = 100),
+       control = nlmeControl(maxIter = 200)),
+  error = function(e) NULL
+)
+
+# Métricas de ajuste
+cat("=== COMPARACIÓN DE AJUSTE ===\\n")
+cat(sprintf("LMM  — AIC: %.2f | BIC: %.2f | log-lik: %.2f\\n",
+            AIC(mod_lmm), BIC(mod_lmm), logLik(mod_lmm)))
+if (!is.null(mod_nlmm))
+  cat(sprintf("NLMM — AIC: %.2f | BIC: %.2f | log-lik: %.2f\\n",
+              AIC(mod_nlmm), BIC(mod_nlmm), logLik(mod_nlmm)))
+
+# Gráfico comparativo
+t_seq <- seq(140, 240, length.out = 100)
+pred_lmm  <- predict(mod_lmm, newdata = data.frame(tiempo = t_seq), level = 0)
+fe_nlmm   <- if (!is.null(mod_nlmm)) fixef(mod_nlmm) else NULL
+
+df_curvas <- data.frame(
+  tiempo = rep(t_seq, 2),
+  pred   = c(pred_lmm,
+             if (!is.null(fe_nlmm)) logistic3(t_seq, fe_nlmm["A"], fe_nlmm["B"], fe_nlmm["C"]) else NA),
+  modelo = rep(c("LMM (lineal)", "NLMM (logístico)"), each = length(t_seq))
+)
+
+ggplot() +
+  geom_line(data = df_curvas, aes(x = tiempo, y = pred, color = modelo, linetype = modelo), linewidth = 1.2) +
+  geom_point(data = spruce_ctrl, aes(x = tiempo, y = log_size), alpha = 0.6, size = 2) +
+  scale_color_manual(values = c("steelblue", "darkred")) +
+  labs(title = "LMM lineal vs NLMM logístico — Grupo Control",
+       subtitle = "El NLMM captura la curvatura sin polinomios adicionales",
+       x = "Días", y = "log(tamaño)", color = "Modelo", linetype = "Modelo") +
+  theme_bw()`}
+/>
+
+<SASAccordion title="NLMM logístico en PROC NLMIXED (SAS)" code={`/* =====================================================
+   NLMM logístico en SAS — PROC NLMIXED
+   Equivalente al nlme() del código R de este módulo
+   ===================================================== */
+
+/* Preparar datos en formato largo */
+data abetos_ctrl;
+  set abetos_largo;
+  where grupo = "Control";
+run;
+
+proc nlmixed data=abetos_ctrl method=fo;
+  title 'NLMM logístico — Grupo Control';
+
+  /* Valores iniciales */
+  parms beta1=6.5 beta2=180 beta3=100 s2b1=0.1 s2e=0.01;
+  bounds s2b1 >= 0, s2e >= 0;
+
+  /* Función logística con efecto aleatorio en la asíntota */
+  num = beta1 + b1;
+  den = 1 + exp(-(tiempo - beta2) / beta3);
+  mu  = num / den;
+
+  model log_size ~ normal(mu, s2e);
+  random b1 ~ normal(0, s2b1) subject=ID;
+run;`} />
+
+## Conceptos clave del NLMM
+
+<Flashcards items={[
+  {
+    front: "¿En qué se diferencia un NLMM de un LMM?",
+    back: "En un NLMM la función de la media f(t, φᵢ) es NO lineal en los parámetros φᵢ. Esto implica que no existe solución analítica cerrada y la estimación requiere algoritmos iterativos (GLS linealizado, Laplace). La ventaja es que los parámetros suelen tener interpretación biológica o física directa."
+  },
+  {
+    front: "¿Qué significan los tres parámetros del modelo logístico f(t) = φ₁ / (1 + exp(-(t−φ₂)/φ₃))?",
+    back: "φ₁ = asíntota superior (valor máximo que alcanza la curva); φ₂ = punto de inflexión (t donde la pendiente es máxima); φ₃ = parámetro de escala (cuanto más grande, más gradual es la transición)."
+  },
+  {
+    front: "¿Por qué son críticos los valores iniciales en los NLMM?",
+    back: "El algoritmo de estimación (GLS linealizado) resuelve iterativamente una secuencia de sistemas lineales aproximados. Si el punto de arranque está lejos de la solución, la linealización local es mala y el algoritmo puede divergir, no converger, o encontrar un mínimo local. La solución es elegir arranques basados en graficación de los datos."
+  },
+  {
+    front: "¿Cómo se interpreta el efecto aleatorio en la asíntota del modelo logístico?",
+    back: "random = A ~ 1 | ID significa que cada árbol (sujeto) tiene su propia asíntota: φ₁ᵢ = β₁ + b₁ᵢ, donde b₁ᵢ ~ N(0, σ²_b₁). La varianza σ²_b₁ cuantifica cuánto difieren los árboles en su capacidad máxima de crecimiento."
+  },
+  {
+    front: "¿Cuándo preferir el NLMM sobre el LMM con polinomios?",
+    back: "Cuando el proceso tiene una interpretación mecanicista (crecimiento, degradación, cinética enzimática), cuando los parámetros de la curva son el foco inferencial (no solo la curva), y cuando los datos cubren el rango completo de la curva (incluyendo la saturación). El LMM con polinomios es más flexible pero sus parámetros son menos interpretables."
+  }
+]} />
+
+## Quiz de autoevaluación
+
+<Quiz questions={[
+  {
+    question: "En el NLMM logístico ajustado a los abetos, el grupo Ozono tiene una asíntota (β₁) mayor que el grupo Control. ¿Cuál es la interpretación correcta?",
+    options: [
+      "Los árboles de ozono crecen más rápido al principio del experimento",
+      "Los árboles de ozono alcanzan un tamaño máximo de tronco potencialmente mayor",
+      "El punto de inflexión es más temprano en el grupo ozono",
+      "La varianza residual es mayor en el grupo ozono"
+    ],
+    correctIndex: 1,
+    explanation: "β₁ es la asíntota, es decir, el límite superior al que converge log(tamaño) a medida que t → ∞. Una asíntota mayor en el grupo Ozono indica que estos árboles pueden alcanzar un tamaño final de tronco mayor, independientemente de la velocidad a la que lo hacen (que está controlada por β₂ y β₃)."
+  },
+  {
+    question: "¿Por qué nlme() puede fallar mientras que lmer() nunca lo hace en los módulos anteriores?",
+    options: [
+      "Porque nlme() está programado de forma menos robusta",
+      "Porque el LMM tiene solución analítica exacta mientras el NLMM requiere linealización iterativa sensible a los valores iniciales",
+      "Porque lmer() usa un algoritmo más moderno",
+      "Porque los datos de abetos son demasiado pequeños para nlme()"
+    ],
+    correctIndex: 1,
+    explanation: "El LMM se estima resolviendo un sistema de ecuaciones lineales (ecuaciones de Henderson) que siempre tiene solución. El NLMM se aproxima iterativamente: en cada paso se linealiza f(t, φ) alrededor de la estimación actual. Si el punto de arranque es malo, la linealización es pobre y el algoritmo diverge."
+  },
+  {
+    question: "Se ajusta el NLMM con random = A ~ 1 | ID. ¿Qué implica NO incluir B y C como aleatorios?",
+    options: [
+      "Que todos los árboles tienen el mismo punto de inflexión y la misma tasa de crecimiento",
+      "Que el modelo no es válido estadísticamente",
+      "Que solo el grupo Control puede estimarse",
+      "Que la asíntota es igual para todos"
+    ],
+    correctIndex: 0,
+    explanation: "Solo A (la asíntota) tiene un efecto aleatorio, lo que significa que el modelo asume que φ₂ (cuándo crece más rápido) y φ₃ (qué tan suave es la transición) son los mismos para todos los árboles en la población. Cada árbol puede tener su propia capacidad máxima, pero todos siguen la misma 'velocidad' de crecimiento."
+  }
+]} />
+
+---
+
+## Referencias del módulo
+
+- **Correa, J. C. y Salazar, J. C. (2016).** *Introducción a los modelos mixtos.* Universidad Nacional de Colombia, Sede Medellín. [Capítulo 7: Modelo no lineal mixto; pp. 190–206].
+- **Pinheiro, J. y Bates, D. (2000).** *Mixed-Effects Models in S and S-PLUS.* Springer. [Capítulos 6–8: modelos no lineales mixtos, estimación y diagnóstico].
+- **Davidian, M. y Giltinan, D. M. (1995).** *Nonlinear Models for Repeated Measurement Data.* Chapman & Hall. [Referencia clásica sobre NLMM con aplicaciones en farmacocinética].
+- **Pinheiro, J. C. y Bates, D. M. (1995).** Approximations to the log-likelihood function in the nonlinear mixed-effects model. *Journal of Computational and Graphical Statistics*, 4(1), 12–35.

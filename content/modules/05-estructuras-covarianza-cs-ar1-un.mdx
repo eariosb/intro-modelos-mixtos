@@ -232,3 +232,327 @@ ggplot(cor_df, aes(Ocasion_i, Ocasion_j, fill = Correlacion)) +
     explanation: "Para comparar verosimilitudes con LRT/AIC necesitamos modelos anidados ajustados con ML y la misma especificación de efectos fijos; solo cambia la estructura de R."
   }
 ]} />
+
+---
+
+## Apéndice: Regresión GLS con AR(1) puro (sin efectos aleatorios)
+
+Existe una alternativa al LMM cuando el interés está **únicamente en la correlación serial** y no en la heterogeneidad individual: el **modelo GLS con correlación AR(1)** pero sin efectos aleatorios. Esto corresponde a la sección 3.12 del libro de Correa y Salazar (2016).
+
+### ¿Cuándo usar GLS-AR(1) en lugar de un LMM?
+
+| Modelo | Supuesto | Cuándo usarlo |
+|--------|----------|---------------|
+| OLS clásico | Errores independientes | Solo si no hay correlación detectable |
+| GLS-AR(1) | Correlación serial, sin heterogeneidad individual | Muchas obs. por sujeto; interés en coeficientes poblacionales |
+| LMM + AR(1) | Heterogeneidad individual + correlación serial | Diseños mixtos con ambas fuentes de variación |
+
+<RCell id="gls-ar1-comparacion" title="Comparar OLS, GLS-AR(1) y LMM — Orthodont" code={`library(nlme)
+
+data(Orthodont, package = "nlme")
+
+# Modelo 1: OLS (ignora correlación)
+mod_ols <- gls(distance ~ age + Sex, data = Orthodont, method = "ML")
+
+# Modelo 2: GLS con AR(1) — sin efectos aleatorios
+mod_gls_ar1 <- gls(
+  distance ~ age + Sex, data = Orthodont, method = "ML",
+  correlation = corAR1(form = ~ age | Subject)
+)
+
+# Modelo 3: LMM con intercepto aleatorio + AR(1)
+mod_lmm_ar1 <- lme(
+  distance ~ age + Sex, data = Orthodont, method = "ML",
+  random = ~ 1 | Subject,
+  correlation = corAR1(form = ~ age | Subject)
+)
+
+# Tabla comparativa de coeficientes
+extract_coefs <- function(mod, nombre) {
+  co <- summary(mod)$tTable
+  data.frame(modelo = nombre, coef = rownames(co),
+             estimate = round(co[, "Value"], 4),
+             SE = round(co[, "Std.Error"], 4),
+             p_value = round(co[, "p-value"], 4))
+}
+
+tab <- rbind(extract_coefs(mod_ols, "OLS"),
+             extract_coefs(mod_gls_ar1, "GLS-AR(1)"),
+             extract_coefs(mod_lmm_ar1, "LMM+AR(1)"))
+
+cat("=== COMPARACIÓN DE COEFICIENTES Y SE ===\n")
+print(tab[tab$coef != "(Intercept)", ], row.names = FALSE)
+
+cat(sprintf("\nOLS:        AIC = %.2f\n", AIC(mod_ols)))
+cat(sprintf("GLS-AR(1):  AIC = %.2f\n", AIC(mod_gls_ar1)))
+cat(sprintf("LMM+AR(1):  AIC = %.2f\n", AIC(mod_lmm_ar1)))
+
+rho_gls <- coef(mod_gls_ar1$modelStruct$corStruct, unconstrained = FALSE)
+cat(sprintf("\nRho AR(1) estimado (GLS): %.4f\n", rho_gls))`}
+/>
+
+<Callout type="warning" title="El OLS subestima los errores estándar con correlación positiva">
+  En datos longitudinales correlacionados, el OLS produce errores estándar **demasiado pequeños** e infla artificialmente los estadísticos t. El GLS-AR(1) corrige esto modelando la correlación serial explícitamente.
+</Callout>
+
+---
+
+## Apéndice: Estructuras avanzadas — FA, HF y ARMA(1,1)
+
+<DataTable
+  caption="Estructuras de covarianza avanzadas"
+  columns={["Estructura", "Parámetros", "Cuándo usarla", "Función en R (nlme)"]}
+  rows={[
+    ["FA(q) — Factor Analítico", "qn − q(q−1)/2 + n", "Alternativa parsimoniosa a UN cuando n es grande; q=1 suele ser suficiente.", "corFactor()"],
+    ["HF — Huynh-Feldt", "2n−1", "Medidas repetidas donde la esfericidad no se cumple pero UN es muy general.", "corSymm() con restricciones"],
+    ["ARMA(1,1)", "2", "Cuando AR(1) no captura bien la correlación a lag-1 (memoria más compleja).", "corARMA(p=1, q=1)"]
+  ]}
+/>
+
+<RCell id="arma-comparacion" title="Comparar AR(1) vs ARMA(1,1) — Orthodont" code={`library(nlme)
+data(Orthodont, package = "nlme")
+
+mod_ar1 <- gls(distance ~ age + Sex, data = Orthodont, method = "ML",
+               correlation = corAR1(form = ~ age | Subject))
+
+mod_arma <- tryCatch(
+  gls(distance ~ age + Sex, data = Orthodont, method = "ML",
+      correlation = corARMA(form = ~ age | Subject, p = 1, q = 1)),
+  error = function(e) { cat("ARMA(1,1):", conditionMessage(e), "\n"); NULL }
+)
+
+mod_cs <- gls(distance ~ age + Sex, data = Orthodont, method = "ML",
+              correlation = corCompSymm(form = ~ age | Subject))
+
+cat("=== COMPARACIÓN AIC/BIC ===\n")
+cat(sprintf("%-12s | AIC = %8.2f | BIC = %8.2f\n", "CS",   AIC(mod_cs),  BIC(mod_cs)))
+cat(sprintf("%-12s | AIC = %8.2f | BIC = %8.2f\n", "AR(1)", AIC(mod_ar1), BIC(mod_ar1)))
+if (!is.null(mod_arma))
+  cat(sprintf("%-12s | AIC = %8.2f | BIC = %8.2f\n", "ARMA(1,1)", AIC(mod_arma), BIC(mod_arma)))
+
+cat("\nInterpretación: el modelo con menor AIC/BIC es preferido.\n")
+cat("Para Orthodont (4 ocasiones), CS y AR(1) suelen ser similares.\n")`}
+/>
+
+<SASAccordion title="Estructuras avanzadas en SAS PROC MIXED" code={`/* ARMA(1,1) */
+proc mixed data=ortodont method=ml;
+  class Subject Sex;
+  model distance = age Sex / solution;
+  repeated age / subject=Subject type=ARMA(1,1) r rcorr;
+  title 'ARMA(1,1)';
+run;
+
+/* Factor Analítico FA(1) */
+proc mixed data=ortodont method=ml;
+  class Subject Sex;
+  model distance = age Sex / solution;
+  repeated age / subject=Subject type=FA(1) r rcorr;
+  title 'FA(1)';
+run;
+
+/* Huynh-Feldt */
+proc mixed data=ortodont method=ml;
+  class Subject Sex;
+  model distance = age Sex / solution;
+  repeated age / subject=Subject type=HF r rcorr;
+  title 'Huynh-Feldt';
+run;`} />
+
+---
+
+## Apéndice: Regresión GLS con AR(1) puro (sin efectos aleatorios)
+
+Existe una alternativa al LMM cuando el interés está **únicamente en la correlación serial** y no en la heterogeneidad individual: el **modelo GLS con correlación AR(1)** pero sin efectos aleatorios. Esto corresponde a la sección 3.12 del libro de Correa y Salazar (2016).
+
+### ¿Cuándo usar GLS-AR(1) en lugar de un LMM?
+
+| Modelo | Supuesto | Cuándo usarlo |
+|--------|----------|---------------|
+| OLS clásico | Errores independientes | Solo si no hay correlación detectable |
+| GLS-AR(1) | Correlación serial, sin heterogeneidad individual | Muchas observaciones por sujeto; interés en los coeficientes poblacionales |
+| LMM + AR(1) | Heterogeneidad individual + correlación serial | Diseños mixtos con ambas fuentes de variación |
+
+La diferencia clave: en el GLS-AR(1), todos los sujetos tienen la misma función de correlación, sin componente de varianza entre sujetos. El LMM + AR(1) añade además la varianza $\tau_0^2$.
+
+<RCell id="gls-ar1-comparacion" title="Comparar OLS, GLS-AR(1) y LMM para Orthodont" code={`library(nlme)
+library(ggplot2)
+
+data(Orthodont, package = "nlme")
+
+# ---- Modelo 1: OLS (regresión clásica, ignora correlación) ----
+mod_ols <- gls(distance ~ age + Sex, data = Orthodont, method = "ML")
+
+# ---- Modelo 2: GLS con AR(1) — correlación serial, sin efectos aleatorios ----
+mod_gls_ar1 <- gls(
+  distance ~ age + Sex,
+  data        = Orthodont,
+  correlation = corAR1(form = ~ age | Subject),
+  method      = "ML"
+)
+
+# ---- Modelo 3: LMM con intercepto aleatorio + AR(1) ----
+mod_lmm_ar1 <- lme(
+  distance ~ age + Sex,
+  data        = Orthodont,
+  random      = ~ 1 | Subject,
+  correlation = corAR1(form = ~ age | Subject),
+  method      = "ML"
+)
+
+# ---- Tabla comparativa de coeficientes y SE ----
+extract_coefs <- function(mod, nombre) {
+  co <- summary(mod)$tTable
+  data.frame(
+    modelo   = nombre,
+    coef     = rownames(co),
+    estimate = round(co[, "Value"], 4),
+    SE       = round(co[, "Std.Error"], 4),
+    t_value  = round(co[, "t-value"], 3),
+    p_value  = round(co[, "p-value"], 4)
+  )
+}
+
+tab <- rbind(
+  extract_coefs(mod_ols,      "OLS"),
+  extract_coefs(mod_gls_ar1,  "GLS-AR(1)"),
+  extract_coefs(mod_lmm_ar1,  "LMM+AR(1)")
+)
+
+cat("=== COMPARACIÓN DE COEFICIENTES Y ERRORES ESTÁNDAR ===\\n")
+print(tab[tab$coef != "(Intercept)", ], row.names = FALSE)
+
+# ---- Métricas de ajuste ----
+cat("\\n=== AIC / BIC ===\\n")
+cat(sprintf("OLS:        AIC = %.2f  BIC = %.2f\\n", AIC(mod_ols), BIC(mod_ols)))
+cat(sprintf("GLS-AR(1):  AIC = %.2f  BIC = %.2f\\n", AIC(mod_gls_ar1), BIC(mod_gls_ar1)))
+cat(sprintf("LMM+AR(1):  AIC = %.2f  BIC = %.2f\\n", AIC(mod_lmm_ar1), BIC(mod_lmm_ar1)))
+
+# ---- Parámetro AR(1) estimado ----
+rho_gls <- coef(mod_gls_ar1$modelStruct$corStruct, unconstrained = FALSE)
+rho_lmm <- coef(mod_lmm_ar1$modelStruct$corStruct, unconstrained = FALSE)
+cat(sprintf("\\nRho AR(1) — GLS:      %.4f\\n", rho_gls))
+cat(sprintf("Rho AR(1) — LMM+AR1:  %.4f\\n", rho_lmm))`}
+/>
+
+<Callout type="warning" title="El OLS subestima los errores estándar cuando hay correlación positiva">
+  En datos longitudinales con correlación positiva, el OLS trata cada observación como independiente y sobreestima los grados de libertad efectivos, produciendo errores estándar **más pequeños de lo correcto**. Esto infla artificialmente los estadísticos $t$ y puede llevar a rechazar $H_0$ cuando no se debería. El GLS-AR(1) corrige este problema.
+</Callout>
+
+---
+
+## Apéndice: Estructuras de covarianza avanzadas (FA, HF, ARMA)
+
+Las estructuras CS, AR(1) y UN son las más usadas, pero existen alternativas para situaciones especiales. Esta sección presenta brevemente las estructuras **Factor Analítica (FA)**, **Huynh-Feldt (HF)** y **ARMA(1,1)**, siguiendo la taxonomía de Correa y Salazar (2016, sección 3.15.2).
+
+<DataTable
+  caption="Estructuras de covarianza avanzadas"
+  columns={["Estructura", "Descripción", "Parámetros (n ocasiones)", "Cuándo usarla", "Función en R (nlme)"]}
+  rows={[
+    ["FA(q)", "Factor Analítico de q factores. La matriz Σ = ΛΛ' + Ψ con Λ de rango q.", "qn - q(q-1)/2 + n", "Alternativa parsimoniosa a UN cuando n es grande; q=1 o q=2 suele ser suficiente.", "corFactor()"],
+    ["HF (Huynh-Feldt)", "Relaja la esfericidad de CS: Cov(yⱼ,yₖ) = (λⱼ + λₖ)/2 - λ", "2n-1", "Diseños de medidas repetidas donde la esfericidad no se cumple pero UN es demasiado general.", "No directamente en nlme; usar corSymm() con restricciones"],
+    ["ARMA(1,1)", "Proceso autorregresivo-media móvil de órdenes (1,1): ρₕ = φρₕ₋₁ + θδ(h=1)", "2", "Cuando AR(1) no captura bien la correlación a lag-1 (estructura de 'memoria' más compleja).", "corARMA(p=1, q=1)"]
+  ]}
+/>
+
+<RCell id="arma-fa-comparacion" title="Comparar AR(1), ARMA(1,1) y FA(1) sobre Orthodont" code={`library(nlme)
+library(ggplot2)
+
+data(Orthodont, package = "nlme")
+
+modelos <- list()
+
+# AR(1) — estructura base
+modelos[["AR(1)"]] <- tryCatch(
+  gls(distance ~ age + Sex, data = Orthodont, method = "ML",
+      correlation = corAR1(form = ~ age | Subject)),
+  error = function(e) NULL
+)
+
+# ARMA(1,1) — más flexible
+modelos[["ARMA(1,1)"]] <- tryCatch(
+  gls(distance ~ age + Sex, data = Orthodont, method = "ML",
+      correlation = corARMA(form = ~ age | Subject, p = 1, q = 1)),
+  error = function(e) NULL
+)
+
+# Simetría compuesta (CS) — referencia parsimoniosa
+modelos[["CS"]] <- tryCatch(
+  gls(distance ~ age + Sex, data = Orthodont, method = "ML",
+      correlation = corCompSymm(form = ~ age | Subject)),
+  error = function(e) NULL
+)
+
+# Estructura sin restricciones (UN)
+modelos[["UN"]] <- tryCatch(
+  gls(distance ~ age + Sex, data = Orthodont, method = "ML",
+      correlation = corSymm(form = ~ 1 | Subject),
+      weights = varIdent(form = ~ 1 | age)),
+  error = function(e) NULL
+)
+
+# ---- Tabla comparativa ----
+cat("=== COMPARACIÓN DE ESTRUCTURAS DE COVARIANZA ===\\n")
+cat(sprintf("%-12s | %8s | %8s | %s\\n", "Estructura", "AIC", "BIC", "log-lik"))
+cat(rep("-", 45), "\\n", sep = "")
+for (nm in names(modelos)) {
+  if (!is.null(modelos[[nm]])) {
+    cat(sprintf("%-12s | %8.2f | %8.2f | %.2f\\n",
+                nm, AIC(modelos[[nm]]), BIC(modelos[[nm]]),
+                as.numeric(logLik(modelos[[nm]]))))
+  } else {
+    cat(sprintf("%-12s | %8s | %8s | %s\\n", nm, "FALLO", "FALLO", "NA"))
+  }
+}
+
+# ---- Parámetros de correlación estimados ----
+cat("\\n=== PARÁMETROS DE CORRELACIÓN ===\\n")
+for (nm in c("AR(1)", "ARMA(1,1)", "CS")) {
+  if (!is.null(modelos[[nm]])) {
+    par_est <- coef(modelos[[nm]]$modelStruct$corStruct, unconstrained = FALSE)
+    cat(sprintf("%s: %s\\n", nm, paste(round(par_est, 4), collapse = ", ")))
+  }
+}
+
+cat("\\nInterpretación: el modelo con menor AIC/BIC es el preferido por parsimonia.\\n")`}
+/>
+
+<SASAccordion title="Estructuras avanzadas en SAS PROC MIXED" code={`/* =====================================================
+   Estructuras avanzadas en SAS — PROC MIXED
+   ===================================================== */
+
+/* ARMA(1,1) */
+proc mixed data=ortodont method=ml;
+  class Subject Sex;
+  model distance = age Sex / solution;
+  repeated age / subject=Subject type=ARMA(1,1) r rcorr;
+  title 'Estructura ARMA(1,1)';
+run;
+
+/* Factor Analítico de 1 factor */
+proc mixed data=ortodont method=ml;
+  class Subject Sex;
+  model distance = age Sex / solution;
+  repeated age / subject=Subject type=FA(1) r rcorr;
+  title 'Estructura FA(1)';
+run;
+
+/* Huynh-Feldt */
+proc mixed data=ortodont method=ml;
+  class Subject Sex;
+  model distance = age Sex / solution;
+  repeated age / subject=Subject type=HF r rcorr;
+  title 'Estructura Huynh-Feldt';
+run;
+
+/* Comparación de todos los modelos */
+ods output FitStatistics=ajustes;
+%macro compara_estructuras;
+  %do tipo = CS AR(1) ARMA(1,1) FA(1) HF UN;
+    proc mixed data=ortodont method=ml;
+      class Subject Sex;
+      model distance = age Sex;
+      repeated age / subject=Subject type=&tipo;
+      title "Estructura &tipo";
+    run;
+  %end;
+%mend;`} />

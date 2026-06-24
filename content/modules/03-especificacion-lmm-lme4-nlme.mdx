@@ -499,6 +499,226 @@ ggplot(sleepstudy, aes(x = Days)) +
 
 ---
 
+## Apéndice A — Bayes empírico y el fenómeno de *shrinkage*
+
+Los BLUPs que obtuviste con `ranef()` en las secciones anteriores no son solo "residuales de grupo": son **predictores bayesianos empíricos**. Esta sección explica por qué, y cómo visualizar el efecto de *contracción* (*shrinkage*) hacia la media global.
+
+### Los BLUPs como media a posteriori
+
+En el modelo con intercepto aleatorio $b_{0i} \sim \mathcal{N}(0, \tau_0^2)$, la distribución a posteriori de $b_{0i}$ dado $\mathbf{y}_i$ es normal con media:
+
+$$
+\hat{b}_{0i}^{\text{BLUP}} = \underbrace{\frac{\tau_0^2}{\tau_0^2 + \sigma^2/n_i}}_{\lambda_i} \cdot (\bar{y}_i - \hat{\beta}_0)
+$$
+
+El factor $\lambda_i \in (0,1)$ es el **peso de shrinkage** del sujeto $i$:
+
+- Si $\tau_0^2 \gg \sigma^2/n_i$ (mucha variabilidad entre sujetos, o sujeto bien medido): $\lambda_i \to 1$ y el BLUP se acerca a la media cruda del sujeto.
+- Si $\tau_0^2 \ll \sigma^2/n_i$ (poca variabilidad entre sujetos, o sujeto poco medido): $\lambda_i \to 0$ y el BLUP se contrae hacia la media global $\hat\beta_0$.
+
+Este es exactamente el **estimador de Bayes empírico** bajo pérdida cuadrática, y también coincide con las **Ecuaciones de Henderson** (1950).
+
+<Callout type="info" title="¿Por qué 'empírico'?">
+  Se llama Bayes *empírico* porque los hiperparámetros de la distribución a priori ($\tau_0^2$, $\sigma^2$) se **estiman de los datos** (vía REML o ML), en lugar de ser fijados antes de ver los datos como en el enfoque bayesiano pleno. Si usáramos MCMC con distribuciones a priori prefijadas y `brms`, obtendríamos intervalos de credibilidad completos para cada $b_{0i}$, a costa de mayor costo computacional.
+</Callout>
+
+<RCell id="bayes-shrinkage" title="Visualizar el shrinkage: medias crudas vs BLUPs" code={`library(lme4)
+library(ggplot2)
+
+data(sleepstudy, package = "lme4")
+
+# Modelo con pendiente aleatoria
+mod <- lmer(Reaction ~ Days + (Days | Subject), data = sleepstudy, REML = TRUE)
+
+# --- Medias crudas por sujeto ---
+medias_crudas <- tapply(sleepstudy$Reaction, sleepstudy$Subject, mean)
+
+# --- BLUPs del intercepto ---
+re <- ranef(mod)$Subject
+blups_int <- re[["(Intercept)"]]
+names(blups_int) <- rownames(re)
+
+# --- Media global del intercepto (efecto fijo) ---
+media_global <- fixef(mod)["(Intercept)"]
+
+# --- Data frame para ggplot ---
+df_shrink <- data.frame(
+  sujeto       = names(medias_crudas),
+  media_cruda  = as.numeric(medias_crudas),
+  blup_int     = blups_int + media_global,   # BLUP en escala original
+  media_global = media_global
+)
+
+# Gráfico de shrinkage
+ggplot(df_shrink, aes(x = media_cruda, y = blup_int)) +
+  geom_abline(slope = 1, intercept = 0, color = "gray60", linetype = "dashed",
+              linewidth = 0.8) +
+  geom_hline(yintercept = media_global, color = "steelblue", linetype = "dotted",
+             linewidth = 1) +
+  geom_point(size = 3, color = "darkred") +
+  geom_segment(aes(xend = media_cruda, yend = media_global),
+               color = "gray70", linewidth = 0.4) +
+  annotate("text", x = min(df_shrink$media_cruda) + 5,
+           y = media_global + 5, label = "Media global",
+           color = "steelblue", size = 3.5) +
+  labs(
+    title = "Shrinkage: medias crudas vs. BLUPs (intercepto)",
+    subtitle = "Los BLUPs se contraen hacia la media global — mayor contracción para sujetos extremos",
+    x = "Media cruda por sujeto (ms)",
+    y = "BLUP del intercepto (ms)",
+    caption = "Línea discontinua = identidad (sin shrinkage) | Línea punteada azul = media global"
+  ) +
+  theme_bw()
+
+# Magnitud del shrinkage
+df_shrink$shrinkage <- abs(df_shrink$media_cruda - df_shrink$blup_int)
+cat("\\nShrinkage por sujeto (ms):\\n")
+print(round(df_shrink[order(-df_shrink$shrinkage), c("sujeto","media_cruda","blup_int","shrinkage")], 2))`}
+/>
+
+<RCell id="bayes-lambda" title="Calcular el factor lambda de shrinkage" code={`library(lme4)
+data(sleepstudy, package = "lme4")
+mod_a <- lmer(Reaction ~ Days + (1 | Subject), data = sleepstudy, REML = TRUE)
+
+# Extraer componentes de varianza
+tau2  <- as.numeric(VarCorr(mod_a)$Subject)  # varianza entre sujetos
+sig2  <- sigma(mod_a)^2                        # varianza residual
+ni    <- table(sleepstudy$Subject)              # observaciones por sujeto
+
+# Factor lambda (shrinkage weight)
+lambda <- tau2 / (tau2 + sig2 / as.numeric(ni))
+
+cat("=== FACTOR LAMBDA (peso del shrinkage) ===\\n")
+cat(sprintf("tau² (entre sujetos): %.4f\\n", tau2))
+cat(sprintf("sigma² (residual):    %.4f\\n", sig2))
+cat(sprintf("n_i (obs/sujeto):     %d\\n\\n", ni[1]))
+
+cat("Lambda = tau² / (tau² + sigma²/n_i)\\n")
+cat(sprintf("Lambda = %.4f / (%.4f + %.4f/%.0f) = %.4f\\n",
+            tau2, tau2, sig2, ni[1], lambda[1]))
+cat(sprintf("\\nInterpretación: el BLUP captura el %.0f%% de la desviación cruda del sujeto\\n",
+            lambda[1] * 100))
+cat("El %.0f%% restante se 'encoge' hacia la media global.\\n",
+    (1 - lambda[1]) * 100)`}
+/>
+
+---
+
+## Apéndice B — El algoritmo EM: convergencia visual paso a paso
+
+El algoritmo EM (Expectation-Maximization, Dempster, Laird y Rubin, 1977) es uno de los métodos clásicos para estimar modelos con datos incompletos o variables latentes. En los LMM, los efectos aleatorios $\mathbf{b}_i$ son las "variables latentes" que el algoritmo EM maneja de manera implícita.
+
+### Los dos pasos del algoritmo
+
+**Paso E (Expectation):** calcula $Q(\theta | \theta^{(t)}) = \mathbb{E}_{\mathbf{b}|\mathbf{y},\theta^{(t)}}[\log L(\theta; \mathbf{y}, \mathbf{b})]$, es decir, la verosimilitud esperada sobre la distribución condicional de los efectos aleatorios dados los datos y los parámetros actuales.
+
+**Paso M (Maximization):** maximiza $Q$ respecto a $\theta$, produciendo la nueva estimación $\theta^{(t+1)}$.
+
+Para el modelo de intercepto aleatorio balanceado ($n_i = n$ para todo $i$, $N$ sujetos), las actualizaciones cerradas del EM son:
+
+$$
+\hat\sigma^{2,(t+1)} = \frac{1}{Nn} \sum_{i,j} \left[(y_{ij} - \hat\beta^{(t)} - \hat b_i^{(t)})^2 + \text{Var}(b_i | \mathbf{y})\right]
+$$
+
+$$
+\hat\tau^{2,(t+1)} = \frac{1}{N} \sum_i \left[(\hat b_i^{(t)})^2 + \text{Var}(b_i | \mathbf{y})\right]
+$$
+
+<RCell id="em-algorithm" title="Algoritmo EM para intercepto aleatorio — Visualización de convergencia" code={`library(lme4)
+library(ggplot2)
+
+set.seed(2024)
+data(sleepstudy, package = "lme4")
+
+# Usar solo días 0-4 para simplificar (modelo de intercepto aleatorio)
+dat <- sleepstudy[sleepstudy$Days <= 4, ]
+N   <- length(unique(dat$Subject))  # número de sujetos
+n   <- 5                             # mediciones por sujeto (días 0-4)
+
+y_mat <- matrix(dat$Reaction, nrow = N, ncol = n, byrow = TRUE)
+y_bar  <- rowMeans(y_mat)           # medias por sujeto
+y_grand <- mean(y_mat)              # media global
+
+# ---- Implementación del algoritmo EM ----
+em_lmm <- function(y_mat, n_iter = 50, sigma2_0 = 1000, tau2_0 = 500) {
+  N <- nrow(y_mat)
+  n <- ncol(y_mat)
+  y_bar   <- rowMeans(y_mat)
+  y_grand <- mean(y_mat)
+
+  sigma2 <- sigma2_0
+  tau2   <- tau2_0
+  beta   <- y_grand
+
+  historia <- data.frame(iter = 0, sigma2 = sigma2, tau2 = tau2,
+                          loglik = NA, beta = beta)
+
+  for (t in 1:n_iter) {
+    # ----- Paso E: calcular BLUPs y sus varianzas -----
+    lambda   <- tau2 / (tau2 + sigma2 / n)
+    b_hat    <- lambda * (y_bar - beta)
+    var_b    <- (1 - lambda) * tau2   # Var(b_i | y_i)
+
+    # ----- Paso M: actualizar parámetros -----
+    beta_new   <- y_grand - mean(b_hat)
+    resid2     <- rowMeans((y_mat - matrix(beta_new + b_hat, N, n))^2)
+    sigma2_new <- mean(resid2) + var_b
+    tau2_new   <- mean(b_hat^2) + var_b
+
+    # Log-verosimilitud marginal (para monitorear convergencia)
+    V_i <- tau2_new + sigma2_new / n
+    ll  <- -N/2 * log(2 * pi * V_i) - sum((y_bar - beta_new)^2) / (2 * V_i)
+
+    sigma2 <- sigma2_new
+    tau2   <- tau2_new
+    beta   <- beta_new
+
+    historia <- rbind(historia,
+      data.frame(iter = t, sigma2 = sigma2, tau2 = tau2, loglik = ll, beta = beta))
+  }
+  historia
+}
+
+# Ejecutar EM con valores iniciales deliberadamente lejanos
+hist_em <- em_lmm(y_mat, n_iter = 40, sigma2_0 = 5000, tau2_0 = 100)
+
+# Comparar con lmer (solución exacta)
+mod_lmer <- lmer(Reaction ~ 1 + (1 | Subject), data = dat, REML = FALSE)
+sigma2_lmer <- sigma(mod_lmer)^2
+tau2_lmer   <- as.numeric(VarCorr(mod_lmer)$Subject)
+
+cat("=== COMPARACIÓN EM vs lmer ===\\n")
+cat(sprintf("EM (última iter)   sigma² = %.2f | tau² = %.2f\\n",
+            tail(hist_em$sigma2, 1), tail(hist_em$tau2, 1)))
+cat(sprintf("lmer (referencia)  sigma² = %.2f | tau² = %.2f\\n",
+            sigma2_lmer, tau2_lmer))
+
+# Gráfico de convergencia
+p_sigma <- ggplot(hist_em[-1, ], aes(x = iter, y = sigma2)) +
+  geom_line(color = "steelblue", linewidth = 1) +
+  geom_hline(yintercept = sigma2_lmer, linetype = "dashed", color = "darkred") +
+  annotate("text", x = 35, y = sigma2_lmer + 50, label = "lmer", color = "darkred") +
+  labs(title = "Convergencia de sigma² (varianza residual)",
+       x = "Iteración EM", y = "sigma²") +
+  theme_bw()
+
+p_tau <- ggplot(hist_em[-1, ], aes(x = iter, y = tau2)) +
+  geom_line(color = "darkorange", linewidth = 1) +
+  geom_hline(yintercept = tau2_lmer, linetype = "dashed", color = "darkred") +
+  annotate("text", x = 35, y = tau2_lmer + 30, label = "lmer", color = "darkred") +
+  labs(title = "Convergencia de tau² (varianza entre sujetos)",
+       x = "Iteración EM", y = "tau²") +
+  theme_bw()
+
+gridExtra::grid.arrange(p_sigma, p_tau, ncol = 2)`}
+/>
+
+<Callout type="info" title="EM en la práctica vs. Newton-Raphson">
+  El EM es conceptualmente elegante pero converge **lentamente** cerca de la solución (convergencia lineal). Los paquetes modernos como `lme4` usan el **algoritmo de Newton-Raphson** o variantes tipo gradiente conjugado (BOBYQA) que tienen convergencia cuadrática y son mucho más rápidos. Sin embargo, el EM es útil cuando el paso M tiene una forma cerrada y es más estable en regiones alejadas del óptimo.
+</Callout>
+
+---
+
 ## Referencias del módulo
 
 - **Correa, J. C. y Salazar, J. C. (2025).** *Modelos Mixtos.* Universidad Nacional de Colombia, Sede Medellín, Facultad de Ciencias, Departamento de Estadística. [Disponible en el repositorio del curso].

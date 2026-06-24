@@ -1,0 +1,358 @@
+---
+title: "Potencia estadística y diseño de estudios longitudinales"
+slug: "potencia-diseno-estudios-longitudinales"
+subtitle: "Cómo calcular el tamaño muestral para un LMM y simular la potencia con longpower y simr."
+objective:
+  - "Entender por qué los estudios longitudinales requieren métodos especiales de cálculo de potencia."
+  - "Distinguir entre potencia para detectar diferencias en interceptos vs. diferencias en pendientes."
+  - "Aplicar las fórmulas analíticas de Diggle et al. para intercepto aleatorio."
+  - "Usar longpower::lmmpower() para cálculos basados en la estructura del LMM."
+  - "Simular la potencia con simr::powerSim() para modelos complejos."
+order: 17
+datasets:
+  - "Datos simulados (set.seed controlado)"
+  - "sleepstudy (lme4)"
+---
+
+## ¿Por qué no basta con la fórmula clásica de dos muestras?
+
+Cuando planificamos un estudio longitudinal, la tentación es usar la fórmula clásica:
+
+$$
+n = \frac{2(z_{\alpha/2} + z_\beta)^2 \sigma^2}{\delta^2}
+$$
+
+Esta fórmula **supone observaciones independientes**. En datos longitudinales, las mediciones repetidas dentro del mismo sujeto están correlacionadas. Ignorar esa correlación lleva a:
+
+- **Sobreestimar** el tamaño muestral necesario (si las correlaciones son positivas y altas): desperdiciar recursos.
+- **Subestimar** el tamaño muestral cuando el interés está en la **pendiente** de cambio: el número de sujetos importa más que el número de ocasiones.
+
+El diseño óptimo de un estudio longitudinal exige responder:
+
+1. ¿Qué queremos detectar? ¿Diferencias en el nivel basal (intercepto) o en la tasa de cambio (pendiente)?
+2. ¿Cuántos sujetos por grupo?
+3. ¿Cuántas ocasiones de medición?
+4. ¿Cuál es el ICC esperado?
+
+<Callout type="info" title="Potencia para intercepto vs. potencia para pendiente">
+  Detectar una diferencia en el **intercepto** (nivel basal entre grupos) se beneficia de **más sujetos**, ya que el intercepto es esencialmente una comparación entre grupos en el momento inicial. En cambio, detectar una diferencia en la **pendiente** (tasa de cambio diferencial) se beneficia de un **buen rango temporal**: pocas mediciones muy espaciadas pueden ser más eficientes que muchas mediciones aglomeradas.
+</Callout>
+
+## Fórmulas analíticas: modelo de intercepto aleatorio
+
+Para un LMM con solo intercepto aleatorio y dos grupos (tratamiento vs. control), medidos en $T$ ocasiones igualmente espaciadas, la varianza del estimador de la diferencia en pendientes es (Diggle, Heagerty, Liang & Zeger, 2002):
+
+$$
+\text{Var}(\hat\delta_{\text{slope}}) = \frac{12\,\sigma^2_\varepsilon}{n \cdot T(T^2-1)} \left[1 + (T-1)\,\rho_{\text{CS}}\right]
+$$
+
+donde $\rho_{\text{CS}} = \tau_0^2 / (\tau_0^2 + \sigma^2_\varepsilon)$ es el ICC bajo estructura CS.
+
+El tamaño muestral por grupo para detectar una diferencia de pendientes $\delta$ con potencia $1-\beta$ y nivel $\alpha$ es:
+
+$$
+n = \frac{12\,\sigma^2_\varepsilon\,(z_{\alpha/2}+z_\beta)^2}{T(T^2-1)\,\delta^2} \cdot \left[1 + (T-1)\,\rho_{\text{CS}}\right]
+$$
+
+<RCell id="power-formula" title="Cálculo analítico: tamaño muestral por fórmula" code={`# Fórmula analítica para n (número de sujetos por grupo)
+# Modelo: intercepto aleatorio, T ocasiones, diferencia en pendientes
+
+n_lmm_slope <- function(delta, sigma2_e, icc, T_occ, alpha = 0.05, power = 0.80) {
+  z_a <- qnorm(1 - alpha / 2)
+  z_b <- qnorm(power)
+  rho  <- icc
+  numerador   <- 12 * sigma2_e * (z_a + z_b)^2
+  denominador <- T_occ * (T_occ^2 - 1) * delta^2
+  factor_icc  <- 1 + (T_occ - 1) * rho
+  ceiling(numerador / denominador * factor_icc)
+}
+
+# --- Escenario base ---
+cat("=== TAMAÑO MUESTRAL POR GRUPO (diferencia en pendientes) ===\\n\\n")
+
+# Parámetros
+delta   <- 0.5    # diferencia en pendientes entre grupos
+sigma2e <- 1.0    # varianza residual
+icc     <- 0.5    # ICC (correlación intraclase)
+alpha   <- 0.05
+power   <- 0.80
+
+cat(sprintf("Delta (diferencia de pendientes): %.2f\\n", delta))
+cat(sprintf("Varianza residual:                %.2f\\n", sigma2e))
+cat(sprintf("ICC:                              %.2f\\n", icc))
+cat(sprintf("Nivel alpha:                      %.2f  | Potencia: %.0f%%\\n\\n", alpha, power * 100))
+
+cat("Ocasiones (T) | n por grupo | Total (2 grupos)\\n")
+cat(rep("-", 50), "\\n", sep = "")
+for (T_occ in c(2, 3, 4, 5, 6, 8, 10)) {
+  n <- n_lmm_slope(delta, sigma2e, icc, T_occ, alpha, power)
+  cat(sprintf("      %2d       |     %3d     |      %4d\\n", T_occ, n, 2 * n))
+}
+
+cat("\\n--- Efecto del ICC (T = 4 ocasiones) ---\\n")
+cat("ICC   | n por grupo\\n")
+for (rho in c(0.1, 0.3, 0.5, 0.7, 0.9)) {
+  n <- n_lmm_slope(delta, sigma2e, rho, T_occ = 4)
+  cat(sprintf("%.1f   | %3d\\n", rho, n))
+}`}
+/>
+
+## Uso de `longpower::lmmpower()` para cálculos con estructura del LMM
+
+El paquete `longpower` (Donohue et al., 2011) implementa las fórmulas de Diggle et al. directamente y acepta los parámetros extraídos de un modelo piloto `lmer`.
+
+<RCell id="power-longpower" title="Potencia con longpower: fórmula analítica basada en LMM" code={`# Instalar longpower si no está disponible
+if (!requireNamespace("longpower", quietly = TRUE)) {
+  install.packages("longpower", repos = "https://cloud.r-project.org")
+}
+library(longpower)
+library(lme4)
+
+# --- Usar sleepstudy como estudio piloto ---
+data(sleepstudy, package = "lme4")
+mod_piloto <- lmer(Reaction ~ Days + (Days | Subject), data = sleepstudy, REML = FALSE)
+
+cat("=== MODELO PILOTO (sleepstudy) ===\\n")
+print(summary(mod_piloto)$coefficients)
+vc <- VarCorr(mod_piloto)
+cat("\\nComponentes de varianza:\\n")
+print(vc)
+
+# lmmpower calcula n para detectar un efecto de interacción tiempo x grupo
+# delta = diferencia en la pendiente de Days entre dos grupos hipotéticos
+cat("\\n=== CALCULO DE POTENCIA CON lmmpower() ===\\n")
+
+# Extraer sigma residual del modelo piloto
+sigma_e <- sigma(mod_piloto)
+
+# Escenario: queremos detectar una diferencia de pendiente de 5 ms/día
+# entre dos grupos (tratamiento vs. control)
+resultado <- tryCatch({
+  lmmpower(mod_piloto,
+           pct.change = 0.25,   # 25% de cambio en la pendiente de Days
+           t          = seq(0, 9, by = 1),  # 10 ocasiones como en sleepstudy
+           power      = 0.80,
+           sig.level  = 0.05,
+           alternative = "two.sided")
+}, error = function(e) {
+  # fallback a método directo si lmmpower falla con el objeto lmer
+  cat("Usando fórmula directa (lmmpower con parámetros manuales):\\n")
+  lmmpower(
+    delta    = 10,         # diferencia de pendiente: 10 ms/día
+    t        = seq(0, 9),  # 10 ocasiones
+    sig2     = sigma_e^2,
+    sig2.b0  = as.numeric(vc$Subject["(Intercept)", "(Intercept)"]),
+    sig2.b1  = as.numeric(vc$Subject["Days", "Days"]),
+    cov.b    = as.numeric(vc$Subject["(Intercept)", "Days"]),
+    power    = 0.80,
+    sig.level = 0.05
+  )
+})
+
+print(resultado)
+cat("\\nInterpretación: se necesitan aproximadamente",
+    ceiling(resultado$n), "sujetos por grupo.\\n")`}
+/>
+
+## Simulación de potencia con `simr`
+
+Para modelos más complejos (pendiente aleatoria, múltiples covariables, datos desbalanceados), la mejor estrategia es la **simulación de Montecarlo** con `simr`.
+
+<RCell id="power-simr" title="Potencia simulada con simr (puede tardar ~60 s)" code={`# Instalar simr si no está disponible
+if (!requireNamespace("simr", quietly = TRUE)) {
+  install.packages("simr", repos = "https://cloud.r-project.org")
+}
+library(simr)
+library(lme4)
+
+set.seed(2024)
+
+# --- Definir un modelo de dos grupos con diferencia en pendiente ---
+# Escenario: ensayo clínico con 2 grupos, 5 visitas (0-4 semanas)
+
+n_suj  <- 20   # sujetos por grupo (modificable)
+n_vis  <- 5    # visitas
+grupos <- rep(c("Control", "Tratamiento"), each = n_suj * n_vis)
+sujeto <- rep(1:(2 * n_suj), each = n_vis)
+tiempo <- rep(0:(n_vis - 1), times = 2 * n_suj)
+
+dat_sim <- data.frame(
+  sujeto = factor(sujeto),
+  tiempo = tiempo,
+  grupo  = factor(grupos)
+)
+
+# Modelo con interacción tiempo:grupo (efecto de interés)
+# Efectos fijos: intercepto=50, pendiente_control=-1, diferencia_pendiente=2
+# Efectos aleatorios: intercepto (tau0=8), pendiente (tau1=1.5), sigma=5
+
+mod_sim <- makeLmer(
+  Respuesta ~ tiempo * grupo + (tiempo | sujeto),
+  fixef  = c(50, -1, 0, 2),     # β: intercept, tiempo, grupoTrat, tiempo:grupoTrat
+  VarCorr = list(sujeto = matrix(c(64, 0, 0, 2.25), 2, 2)),
+  sigma  = 5,
+  data   = dat_sim
+)
+
+cat("=== MODELO BASE PARA SIMULACIÓN ===\\n")
+print(fixef(mod_sim))
+
+# Potencia para la interacción tiempo:grupo (nsim=100 para velocidad)
+# Aumentar nsim a 500-1000 para estimaciones más precisas
+cat("\\n=== SIMULANDO POTENCIA (nsim=100) ===\\n")
+cat("Efecto de interés: coeficiente de tiempo:grupoTratamiento = 2\\n")
+cat("(diferencia de pendiente entre grupos)\\n\\n")
+
+pot <- powerSim(mod_sim, test = fixed("tiempo:grupoTratamiento"), nsim = 100)
+print(pot)
+
+cat("\\nInterpretación: con n =", n_suj,
+    "sujetos por grupo y", n_vis,
+    "visitas,\\nla potencia estimada para detectar una diferencia de pendiente = 2 unidades/semana\\nes aproximadamente", round(summary(pot)$mean, 2) * 100, "%\\n")`}
+/>
+
+## Curva de potencia: variando el tamaño muestral
+
+<RCell id="power-curve" title="Curva de potencia vs. número de sujetos (simulación rápida)" code={`library(lme4)
+
+# Cálculo analítico de la curva de potencia (sin simr para velocidad)
+# Modelo: 2 grupos, T visitas, ICC fijo, varianza fija
+
+power_analytic <- function(n_per_group, delta, sigma2_e, icc, T_occ,
+                            alpha = 0.05) {
+  rho <- icc
+  var_delta_hat <- (12 * sigma2_e * (1 + (T_occ - 1) * rho)) /
+                   (n_per_group * T_occ * (T_occ^2 - 1))
+  z_crit <- qnorm(1 - alpha / 2)
+  z_power <- delta / sqrt(var_delta_hat) - z_crit
+  pnorm(z_power)
+}
+
+# Parámetros del escenario
+delta   <- 0.5    # diferencia de pendiente a detectar
+sigma2e <- 1.0    # varianza residual
+T_occ   <- 4     # 4 visitas
+
+cat("Curva de potencia: delta =", delta, "| T =", T_occ, "visitas\\n\\n")
+
+library(ggplot2)
+
+ns <- 5:80
+escenarios <- expand.grid(n = ns, icc = c(0.2, 0.5, 0.7))
+escenarios$potencia <- mapply(function(n, rho)
+  power_analytic(n, delta, sigma2e, rho, T_occ),
+  escenarios$n, escenarios$icc
+)
+escenarios$ICC <- factor(paste0("ICC = ", escenarios$icc))
+
+ggplot(escenarios, aes(x = n, y = potencia, color = ICC)) +
+  geom_line(linewidth = 1.2) +
+  geom_hline(yintercept = 0.80, linetype = "dashed", color = "gray50") +
+  geom_hline(yintercept = 0.90, linetype = "dotted", color = "gray50") +
+  annotate("text", x = 75, y = 0.81, label = "80%", size = 3.5, color = "gray50") +
+  annotate("text", x = 75, y = 0.91, label = "90%", size = 3.5, color = "gray50") +
+  scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
+  labs(
+    title = "Curva de potencia para detectar diferencia en pendientes",
+    subtitle = sprintf("delta = %.1f | sigma² = %.1f | T = %d visitas", delta, sigma2e, T_occ),
+    x = "Sujetos por grupo (n)",
+    y = "Potencia (1 − β)"
+  ) +
+  scale_color_brewer(palette = "Set1") +
+  theme_bw()`}
+/>
+
+<Callout type="success" title="Reglas prácticas para el diseño de estudios longitudinales">
+  **Para detectar diferencias en interceptos (niveles basales):** el número de sujetos es el factor dominante; agregar visitas ayuda poco una vez que se tienen 3-4 mediciones. **Para detectar diferencias en pendientes (tasas de cambio):** el rango temporal es crucial. Es preferible medir pocas veces durante un período largo que muchas veces en un período corto. Un ICC alto reduce la eficiencia para los interceptos pero puede ayudar para las pendientes al reducir la varianza dentro de sujeto.
+</Callout>
+
+<SASAccordion title="Cálculo de potencia en SAS con PROC POWER" code={`/* =====================================================
+   Cálculo de tamaño muestral en SAS — PROC POWER
+   Para estudios longitudinales con MIXED
+   ===================================================== */
+
+/* Nota: SAS no tiene una rutina directa para LMM en PROC POWER.
+   La aproximación más usada es el método de las ecuaciones de estimación
+   generalizadas (GEE) o simulación con %MACRO. */
+
+/* Alternativa 1: Potencia para comparación de dos medias correlacionadas */
+proc power;
+  pairedmeans test=diff
+    meandiff   = 0.5
+    corr       = 0.5       /* correlación entre medidas del mismo sujeto */
+    stddev     = 1.0
+    npairs     = .
+    power      = 0.80
+    alpha      = 0.05;
+  plot x=n min=5 max=100;
+run;
+
+/* Alternativa 2: Potencia para pendiente en regresión longitudinal */
+/* Se usa la varianza del estimador de pendiente de mínimos cuadrados */
+proc power;
+  onewayanova
+    groupmeans = 0 | 0.5    /* diferencia de pendiente */
+    stddev     = 1.0
+    npergroup  = .
+    power      = 0.80
+    alpha      = 0.05;
+run;
+
+/* Para simulación completa: usar PROC IML o SAS/STAT Macro */`} />
+
+## Repaso diseño de estudios longitudinales
+
+<Flashcards items={[
+  {
+    front: "¿Por qué la fórmula clásica n = 2σ²(zα/2+zβ)²/δ² no es válida para estudios longitudinales?",
+    back: "Porque asume observaciones independientes. En estudios longitudinales, las mediciones del mismo sujeto están correlacionadas (ICC > 0). Si se ignora esto, la estimación de n puede ser muy imprecisa: sobreestimada para comparar interceptos (correlación positiva reduce la varianza) o subestimada si no se considera la varianza entre sujetos correctamente."
+  },
+  {
+    front: "¿Qué aumenta más la potencia para detectar diferencias en pendientes: más sujetos o más visitas?",
+    back: "Depende del contexto. En general, para detectar diferencias en pendientes, el RANGO temporal importa más que el número de visitas. Pero el número de sujetos sigue siendo el factor más importante en la potencia. La fórmula analítica muestra que Var(δ̂) ∝ 1/n y también ∝ 1/T(T²-1), por lo que ambos ayudan pero el efecto de n es multiplicativo y siempre presente."
+  },
+  {
+    front: "¿Qué hace simr::powerSim()?",
+    back: "Simula repetidamente (nsim veces) nuevos datasets a partir de un modelo lmer/glmer dado, re-ajusta el modelo en cada réplica, y aplica un test (Wald, LRT, etc.) al efecto de interés. La potencia estimada es la proporción de réplicas donde el test rechaza H₀. Es el método más flexible para modelos complejos con datos desbalanceados."
+  },
+  {
+    front: "Un estudio piloto mostró ICC = 0.7. ¿Eso es bueno o malo para el diseño?",
+    back: "Depende del objetivo: ICC = 0.7 significa que el 70% de la varianza total está ENTRE sujetos. Para detectar diferencias en interceptos, un ICC alto es BUENO porque reduce la varianza del estimador de la diferencia de medias. Para detectar diferencias en pendientes, el ICC no tiene un efecto directo tan claro; lo que importa es la varianza residual (dentro de sujeto) relativa al efecto que se quiere detectar."
+  }
+]} />
+
+## Quiz de autoevaluación
+
+<Quiz questions={[
+  {
+    question: "Un investigador diseña un estudio longitudinal y calcula que necesita n=50 sujetos por grupo usando la fórmula clásica para dos muestras independientes. El ICC esperado es 0.6. ¿Cuál será el efecto en el tamaño muestral real necesario?",
+    options: [
+      "Necesitará más de 50 por el efecto de la correlación entre mediciones",
+      "Necesitará menos de 50 porque la correlación reduce la varianza del estimador",
+      "La correlación no afecta el tamaño muestral en estudios longitudinales",
+      "Depende exclusivamente del número de visitas"
+    ],
+    correctIndex: 1,
+    explanation: "Con ICC = 0.6 y mediciones correlacionadas positivamente, el estimador de la diferencia entre grupos tiene MENOR varianza que el calculado asumiendo independencia. La correlación entre mediciones repetidas 'ayuda' cuando el interés está en el promedio, porque cada sujeto aportó múltiples observaciones consistentes. En la práctica, esto significa que se necesitarán MENOS de 50 sujetos por grupo."
+  },
+  {
+    question: "¿Cuál es la diferencia entre longpower::lmmpower() y simr::powerSim()?",
+    options: [
+      "longpower es para LMM y simr es para GLMM exclusivamente",
+      "lmmpower usa fórmulas analíticas (más rápido, menos flexible); powerSim usa simulación (más lento, más flexible y aplicable a cualquier modelo)",
+      "Son equivalentes en todos los aspectos",
+      "lmmpower es más preciso que powerSim en todos los casos"
+    ],
+    correctIndex: 1,
+    explanation: "lmmpower aplica fórmulas de Diggle et al. (2002) derivadas bajo supuestos específicos (datos balanceados, modelo normal, etc.). Es rápido y exacto bajo esos supuestos. powerSim es una simulación de Montecarlo que funciona para cualquier modelo que pueda ajustarse con lme4, incluyendo GLMM, datos desbalanceados y estructuras de covarianza complejas, pero requiere muchas réplicas para ser preciso."
+  }
+]} />
+
+---
+
+## Referencias del módulo
+
+- **Diggle, P. J., Heagerty, P., Liang, K.-Y. y Zeger, S. L. (2002).** *Analysis of Longitudinal Data* (2.ª ed.). Oxford University Press. [Capítulo 3: diseño de estudios longitudinales y cálculo de potencia].
+- **Donohue, M. C., Gamst, A. C., Edland, S. D. (2011).** longpower: Sample size calculations for longitudinal studies. R package, CRAN.
+- **Green, P. y MacLeod, C. J. (2016).** simr: An R package for power analysis of generalised linear mixed models by simulation. *Methods in Ecology and Evolution*, 7(4), 493–498.
+- **Correa, J. C. y Salazar, J. C. (2016).** *Introducción a los modelos mixtos.* Universidad Nacional de Colombia. [Sección 2.5: modelo de Laird-Ware y formulaciones especiales].
