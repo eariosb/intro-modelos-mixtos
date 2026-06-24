@@ -10,42 +10,52 @@
 ## Descripción general
 
 **Modelos Mixtos Aplicados a Ciencias de la Salud** es un curso interactivo,
-auto-contenido y gratuito sobre modelos lineales mixtos (LMM), modelos
-lineales mixtos generalizados (GLMM) y ecuaciones de estimación generalizadas
-(GEE), pensado para **profesionales de la salud, estudiantes de pregrado y  posgrado en estadistica e investigadores clinicos, bioestadísticos, epidemiólogos y analistas en ciencias de datos** que analizan datos longitudinales o de medidas repetidas.
+auto-contenido y gratuito sobre modelos lineales mixtos (LMM), modelos no
+lineales mixtos (NLMM), modelos lineales mixtos generalizados (GLMM) y
+ecuaciones de estimación generalizadas (GEE), pensado para **profesionales
+de la salud, estudiantes de pregrado y posgrado en estadística e
+investigadores clínicos, bioestadísticos, epidemiólogos y analistas en
+ciencias de datos** que analizan datos longitudinales o de medidas repetidas.
 
-El curso combina teoría explicada paso a paso, fórmulas en notación LaTeX,
+El curso es el complemento interactivo del libro *Introducción a los modelos
+mixtos* de **Correa y Salazar (2016)**, Universidad Nacional de Colombia, sede
+Medellín. Combina teoría explicada paso a paso, fórmulas en notación LaTeX,
 ejemplos aplicados con datasets reales y simulados, y **código R que se
 ejecuta directamente en el navegador** (sin instalar R ni paquetes) gracias a
 [WebR](https://docs.r-wasm.org/webr/latest/). Cada técnica se acompaña, cuando
 corresponde, de su equivalente en **SAS** (`PROC MIXED`, `PROC GLIMMIX`,
-`PROC GENMOD`, `PROC GEE`, `PROC GAM`).
+`PROC GENMOD`, `PROC GEE`, `PROC NLMIXED`).
 
-Documentación basada en las notas y recomendaciones del profesor Juan Carlos Salazar de la Universidad Nacional de Colombia, sede Medellín.
+Documentación basada en las notas y recomendaciones del profesor Juan Carlos
+Salazar de la Universidad Nacional de Colombia, sede Medellín.
 
 Al finalizar el curso, el estudiante será capaz de:
 
 - Reconocer cuándo una pregunta de investigación requiere un modelo mixto.
 - Explorar visualmente datos longitudinales y detectar anidamiento, desbalance
   y datos faltantes.
-- Especificar, ajustar e interpretar LMM y GLMM con `lme4` y `nlme`.
-- Elegir estructuras de covarianza y correlaciones de trabajo adecuadas
-  (CS, AR(1), no estructurada, GEE).
+- Especificar, ajustar e interpretar LMM, NLMM y GLMM con `lme4` y `nlme`.
+- Elegir estructuras de covarianza apropiadas: CS, AR(1), UN, ARMA(1,1), FA.
 - Comparar y seleccionar modelos con AIC, BIC y pruebas de razón de
   verosimilitud.
-- Diagnosticar el ajuste con residuos simulados (`DHARMa`).
-- Decidir entre LMM, GLMM, GEE, GAMM y alternativas no paramétricas según el
-  problema, y traducir el análisis entre R y SAS.
+- Diagnosticar el ajuste con residuos simulados (`DHARMa`) y medidas de
+  influencia (`influence.ME`: distancia de Cook, DFBETAS).
+- Calcular tamaños muestrales y potencia para estudios longitudinales con
+  fórmulas analíticas y simulación (`longpower`, `simr`).
+- Ajustar modelos no lineales mixtos (función logística, `nlme::nlme()`) y
+  gestionar la sensibilidad a valores iniciales.
+- Decidir entre LMM, NLMM, GLMM, GEE, GAMM y alternativas no paramétricas
+  según el problema, y traducir el análisis entre R y SAS.
 
 ## Características
 
-- Contenido interactivo con teoría y ejemplos prácticos, organizados en 15 módulos progresivos.
+- Contenido interactivo con teoría y ejemplos prácticos, organizados en 18 módulos progresivos.
 - Ejecución de código R en tiempo real en el navegador, vía WebR (sin instalación).
-- Visualización de resultados, gráficos y salidas de consola adaptadas al tamaño de la respuesta.
+- Visualización de resultados, gráficos y salidas de consola adaptadas al tamaño de la respuesta (máx. 30 líneas por defecto, expandibles con "+").
 - Alternativas equivalentes en SAS para cada método, en paneles colapsables.
 - Componentes pedagógicos: callouts, quizzes, flashcards, tablas de datos y pasos de proceso.
 - Diseño responsivo, minimalista y accesible (paleta sobria, tipografía Inter).
-- enerado de forma estática, optimizado para despliegue en Vercel.
+- Generado de forma estática, optimizado para despliegue en Vercel.
 - Preparado para ejecutarse con Docker / Docker Compose.
 
 ## Tecnologías utilizadas
@@ -65,10 +75,10 @@ Al finalizar el curso, el estudiante será capaz de:
 | ---- | ------ | -------------------- |
 | 1 | Introducción a los Modelos Mixtos | Motivación, datos longitudinales y diferencia entre efectos fijos y aleatorios. |
 | 2 | Análisis Exploratorio de Datos Longitudinales | Gráficos de perfiles, perfiles promedio y detección de patrones de anidamiento con `ggplot2`. |
-| 3 | Modelo Lineal Mixto (LMM) | Especificación del LMM con `lme4` y `nlme`, e interpretación de la salida del modelo. |
+| 3 | Modelo Lineal Mixto (LMM) | Especificación del LMM con `lme4` y `nlme`, e interpretación de la salida del modelo. ★ Apéndice A: Bayes empírico y shrinkage (BLUPs como medias posteriores). ★ Apéndice B: algoritmo EM — E-step, M-step y convergencia. |
 | 4 | Modelos Lineales Mixtos básicos | Interpretación de interceptos y pendientes aleatorias en trayectorias clínicas. |
-| 5 | Covarianza y correlación en LMM | Comparación de estructuras CS, AR(1) y no estructurada; matriz de covarianza residual. |
-| 6 | Diagnóstico con residuos simulados (DHARMa) | Validación de supuestos, detección de outliers y documentación de desviaciones del modelo. |
+| 5 | Covarianza y correlación en LMM | Comparación de estructuras CS, AR(1) y no estructurada; matriz de covarianza residual. ★ Apéndice: estructuras avanzadas FA, HF, ARMA(1,1) y GLS-AR(1) puro vs. LMM. |
+| 6 | Diagnóstico con residuos simulados (DHARMa) | Validación de supuestos, detección de outliers y documentación de desviaciones del modelo. ★ Apéndice: distancia de Cook y DFBETAS con `influence.ME`, eliminación de sujetos influyentes. |
 | 7 | GLMM binomial y Poisson | Familias binomial y Poisson para respuestas no gaussianas con efectos aleatorios. |
 | 8 | Comparación y selección de modelos | AIC/BIC y pruebas de razón de verosimilitud para elegir entre especificaciones anidadas. |
 | 9 | Casos integradores: splines, diagnóstico y comunicación | Caso clínico completo: especificación, splines, diagnóstico DHARMa, selección y comunicación de resultados. |
@@ -78,6 +88,11 @@ Al finalizar el curso, el estudiante será capaz de:
 | 13 | Modelos no paramétricos y robustos | GAMM, transformaciones y bootstrap para trayectorias no lineales. |
 | 14 | Recomendaciones para datos longitudinales y medidas repetidas | Guía experta: exploración, efectos aleatorios, covarianza, selección de modelos, diagnóstico y árbol de decisión. |
 | 15 | Aplicación práctica comparada en R y SAS | Implementación lado a lado de las recomendaciones del Módulo 14, con dos casos clínicos integradores. |
+| 16 | Modelos No Lineales Mixtos (NLMM) | Función logística de 3 parámetros, ajuste con `nlme::nlme()`, gestión de valores iniciales, comparación NLMM vs. LMM con datos SPRUCE1. |
+| 17 | Potencia estadística y diseño de estudios longitudinales | Fórmulas analíticas de tamaño muestral, `longpower::lmmpower()` y `simr::powerSim()` para estudios longitudinales con efectos aleatorios. |
+| 18 | Ejercicios propuestos | Ejercicios del Cap. 8 de Correa y Salazar (2016): Enalapril, Clínicas, Pilas; ejercicios complementarios con soluciones ocultables. |
+
+> ★ = sección añadida como apéndice al módulo original.
 
 ## Instalación y uso local
 
@@ -93,8 +108,9 @@ npm run dev
 Abre [http://localhost:3000](http://localhost:3000). La primera vez que pulses
 "▶ Ejecutar" en una celda de código R, WebR descargará el runtime y los
 paquetes precargados (`lme4`, `nlme`, `ggplot2`, `dplyr`, `DHARMa`, `geepack`,
-`mgcv`); puede tardar entre 10 y 30 segundos según la conexión. Ejecuciones
-posteriores son casi instantáneas porque la instancia de WebR se reutiliza.
+`mgcv`, `influence.ME`, `longpower`, `simr`); puede tardar entre 10 y 30
+segundos según la conexión. Ejecuciones posteriores son casi instantáneas
+porque la instancia de WebR se reutiliza.
 
 > **Nota:** WebR requiere que el sitio se sirva con las cabeceras
 > `Cross-Origin-Embedder-Policy: credentialless` y
@@ -217,7 +233,7 @@ subtitle: "Priors, MCMC y brms en el contexto de medidas repetidas."
 objective:
   - "Explicar la diferencia entre inferencia frecuentista y bayesiana."
   - "Ajustar un LMM bayesiano simple con brms."
-order: 16
+order: 19
 datasets:
   - "sleepstudy (lme4)"
 ---
@@ -245,7 +261,7 @@ summary(mod)`} />
 ```
 
 Para que aparezca en la barra lateral y en la portada basta con guardar el
-archivo en `content/modules/16-intro-modelos-bayesianos.mdx` — `lib/courses.ts`
+archivo en `content/modules/19-intro-modelos-bayesianos.mdx` — `lib/courses.ts`
 lee el directorio en build/runtime y ordena los módulos por el campo `order`
 del front matter. No es necesario tocar componentes ni rutas.
 
@@ -284,23 +300,25 @@ npm test
 
 ## Contribución
 
-El contenido pedagógico vive como datos en `content/modules.ts` y
-`content/modules-extra.ts` (objetos `Module`/`Lesson` tipados en
-`content/types.ts`), por lo que se puede **editar o ampliar sin tocar
+Todo el contenido pedagógico vive en `content/modules/` como archivos `.mdx`
+— uno por módulo —, por lo que se puede **editar o ampliar sin tocar
 componentes ni rutas**:
 
-1. Haz un fork y crea una rama descriptiva (`feat/modulo-16-...`,
+1. Haz un fork y crea una rama descriptiva (`feat/modulo-19-...`,
    `fix/typo-modulo-3`).
-2. Para añadir o corregir una lección, edita el `Module` correspondiente:
-   `objectives`, `content` (markdown con soporte `$...$`/`$$...$$`), `rCells`,
-   `sasExamples`, `callouts`, `dataTables`, `flashcards` y `quiz` son todos
-   opcionales salvo `objectives`, `content` y `rCells`.
-3. Ejecuta `npm run dev` y `npm test` antes de abrir el pull request.
-4. Describe en el PR qué módulo/lección se modifica y por qué.
+2. Para añadir un módulo nuevo, crea `content/modules/NN-slug.mdx` con el
+   front matter correcto (`title`, `slug`, `order`, `objective[]`, `datasets[]`).
+   `lib/courses.ts` lo detecta automáticamente y lo inserta en la barra
+   lateral ordenado por `order`.
+3. Para editar contenido existente, modifica directamente el `.mdx`
+   correspondiente: los componentes `<RCell>`, `<Callout>`, `<Quiz>`,
+   `<Flashcards>`, `<DataTable>`, `<ProcessSteps>` y `<SASAccordion>` están
+   disponibles en cualquier módulo sin importación adicional.
+4. Ejecuta `npm run dev` y `npm test` antes de abrir el pull request.
+5. Describe en el PR qué módulo/sección se modifica y por qué.
 
 Los reportes de errores (de contenido o de la aplicación) pueden abrirse como
-*issues*, indicando el módulo/lección afectado y, si aplica, el código R que
-falla.
+*issues*, indicando el módulo afectado y, si aplica, el código R que falla.
 
 ## Licencia
 

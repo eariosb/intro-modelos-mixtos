@@ -16,14 +16,8 @@ export default function HomePage() {
         <h1 className="text-3xl font-semibold tracking-tight text-ink-900 sm:text-4xl">
           Introducción a los Modelos Mixtos
         </h1>
-        <p className="mt-4 max-w-2xl text-base leading-relaxed text-ink-600">
-          Un curso interactivo para aprender modelos lineales mixtos (LMM) y modelos
-          lineales mixtos generalizados (GLMM) desde la exploración de datos longitudinales 
-          y de medidas repetidas, hasta el diagnóstico y la selección de modelos, 
-          con celdas de código R que se ejecutan directamente en el navegador y referencias de código
-          equivalentes en SAS. Fundamentado en las notas de clase, libro (Publicado en cojunto con
-          el profesor Juan Carlos Correa) y recomendaciones del profesor Juan Carlos Salazar, 
-          ambos pertenecientes al Departamento de Estadística de la Universidad Nacional de Colombia, sede Medellín.
+        <p className="mt-4 max-w-2xl text-base leading-relaxed text-ink-600"> 
+          Este curso interactivo es una guía en el dominio de los modelos lineales mixtos (LMM) y generalizados (GLMM) a lo largo de todo el proceso analítico: desde la exploración de datos longitudinales y de medidas repetidas, hasta el diagnóstico de supuestos y la selección final del modelo. Su valor diferencial es la práctica integrada: ejecuta código R real directamente en tu navegador y contrasta los resultados con referencias de código SAS, eliminando barreras técnicas. El material se fundamenta en las notas de clase y en el libro Introducción a los modelos mixtos, escrito por los profesores Juan Carlos Correa y Juan Carlos Salazar, del Departamento de Estadística de la Universidad Nacional de Colombia, Sede Medellín.
         </p>
 
         {firstModule && (
