@@ -1,11 +1,15 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { StreamLanguage } from '@codemirror/language';
 import { r as rMode } from '@codemirror/legacy-modes/mode/r';
+import { toPng } from 'html-to-image';
 import { useRCell } from '@/hooks/useWebR';
 import { ConsoleOutput } from './ConsoleOutput';
+import { saveCapture } from '@/lib/session-store';
+import { sendToBlackboard } from '@/lib/send-to-blackboard';
+import { codeToDataUrl } from '@/lib/code-image';
 import type { RCellProps } from '@/types/course';
 
 const rLanguage = StreamLanguage.define(rMode);
@@ -15,15 +19,128 @@ const rLanguage = StreamLanguage.define(rMode);
  * instance (lazily booted on first run) and renders console output,
  * plots and R-level errors below the editor.
  */
-export function RCell({ id, title, code: initialCode }: RCellProps) {
+export function RCell({ id, title, code: initialCode }: Readonly<RCellProps>) {
   const [code, setCode] = useState(initialCode);
   const { state, result, webRStatus, webRError, run } = useRCell();
+  const cellRef = useRef<HTMLDivElement>(null);
+  const [capturing, setCapturing] = useState(false);
+  const [captureError, setCaptureError] = useState<string | null>(null);
+  const [sendingCode, setSendingCode] = useState(false);
+  const [sendingPlots, setSendingPlots] = useState(false);
 
   const isRunning = state === 'running';
   const isBooting = webRStatus === 'loading' && isRunning;
 
+  const handleCapture = async () => {
+    if (!cellRef.current) return;
+    setCapturing(true);
+    setCaptureError(null);
+    try {
+      const dataUrl = await toPng(cellRef.current, {
+        backgroundColor: '#ffffff',
+        pixelRatio: 2,
+        cacheBust: true,
+        skipFonts: true,
+      });
+      await saveCapture({
+        name: title ? `Código R: ${title}` : `Código R (${id})`,
+        dataUrl,
+        thumbnail: dataUrl,
+        type: 'code',
+        tags: [],
+        code,
+        outputText: result?.text ?? '',
+        plotUrls: result?.plots ?? [],
+        timestamp: Date.now(),
+      });
+    } catch (err) {
+      setCaptureError(err instanceof Error ? err.message : 'Error al capturar');
+    } finally {
+      setCapturing(false);
+    }
+  };
+
+  const handleSendCode = async () => {
+    setSendingCode(true);
+    try {
+      const dataUrl = await codeToDataUrl(code, 'R');
+      sendToBlackboard({
+        dataUrl,
+        opts: {
+          meta: {
+            boardKind: 'code',
+            boardId: id,
+            payload: { lang: 'r', source: code },
+          },
+        },
+      });
+    } finally {
+      setSendingCode(false);
+    }
+  };
+
+  const handleSendOutput = async () => {
+    if (!result?.text) return;
+    const dataUrl = await codeToDataUrl(result.text, 'Resultado');
+    sendToBlackboard({
+      dataUrl,
+      opts: {
+        meta: {
+          boardKind: 'output',
+          boardId: id,
+          payload: { source: result.text },
+        },
+      },
+    });
+  };
+
+  const handleSendPlots = async () => {
+    if (!result?.plots.length) return;
+    setSendingPlots(true);
+    try {
+      for (const plot of result.plots) {
+        sendToBlackboard({
+          dataUrl: plot,
+          opts: {
+            meta: {
+              boardKind: 'plot',
+              boardId: id,
+              payload: { rcellId: id, lang: 'r', source: code },
+            },
+          },
+        });
+      }
+    } finally {
+      setSendingPlots(false);
+    }
+  };
+
+  let extraButton: JSX.Element | null = null;
+  if (result?.plots.length) {
+    extraButton = (
+      <button
+        type="button"
+        onClick={handleSendPlots}
+        disabled={sendingPlots}
+        className="rounded border border-ink-300 px-3 py-1.5 text-sm font-medium text-ink-600 transition-colors hover:bg-ink-100 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-500"
+      >
+        {sendingPlots ? 'Enviando…' : '📈 Enviar gráficos'}
+      </button>
+    );
+  } else if (result?.text) {
+    extraButton = (
+      <button
+        type="button"
+        onClick={handleSendOutput}
+        className="rounded border border-ink-300 px-3 py-1.5 text-sm font-medium text-ink-600 transition-colors hover:bg-ink-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-500"
+      >
+        📄 Enviar resultado
+      </button>
+    );
+  }
+
   return (
-    <div className="my-6 overflow-hidden rounded border border-ink-200 bg-ink-50 shadow-sm transition-shadow hover:shadow-md">
+    <div ref={cellRef} className="my-6 overflow-hidden rounded border border-ink-200 bg-ink-50 shadow-sm transition-shadow hover:shadow-md">
       {title && (
         <div className="border-b border-ink-200 bg-white px-4 py-2 text-sm font-medium text-ink-700">
           {title}
@@ -64,10 +181,32 @@ export function RCell({ id, title, code: initialCode }: RCellProps) {
         >
           Restaurar código original
         </button>
-        {isBooting && (
-          <span className="text-xs text-ink-500" role="status">
-            Iniciando entorno R (WebAssembly) — solo la primera vez puede tardar unos segundos…
+        <button
+          type="button"
+          onClick={handleCapture}
+          disabled={capturing}
+          className="rounded border border-ink-300 px-3 py-1.5 text-sm font-medium text-ink-600 transition-colors hover:bg-ink-100 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-500"
+        >
+          {capturing ? 'Capturando…' : '📸 Capturar'}
+        </button>
+        <button
+          type="button"
+          onClick={handleSendCode}
+          disabled={sendingCode}
+          className="rounded border border-ink-300 px-3 py-1.5 text-sm font-medium text-ink-600 transition-colors hover:bg-ink-100 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-500"
+        >
+          {sendingCode ? 'Enviando…' : '➕ Enviar código'}
+        </button>
+        {extraButton}
+        {captureError && (
+          <span className="text-xs text-red-600" role="alert">
+            Error: {captureError}
           </span>
+        )}
+        {isBooting && (
+          <output className="text-xs text-ink-500">
+            Iniciando entorno R (WebAssembly) — solo la primera vez puede tardar unos segundos…
+          </output>
         )}
       </div>
 
@@ -103,7 +242,7 @@ export function RCell({ id, title, code: initialCode }: RCellProps) {
           {result.plots.map((src, i) => (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              key={i}
+              key={src}
               src={src}
               alt={`Gráfico generado por R (resultado ${i + 1})`}
               className="mx-auto block max-w-full bg-white p-2"

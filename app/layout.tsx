@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
 import { WebRProvider } from '@/components/WebRProvider';
+import { BlackboardProvider } from '@cursos/blackboard';
+import { ThemeSync } from '@/components/ThemeSync';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' });
 
@@ -15,7 +17,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="es" className={inter.variable}>
       <body className="font-sans antialiased">
-        <WebRProvider>{children}</WebRProvider>
+        <WebRProvider>
+          <BlackboardProvider>
+            <ThemeSync />
+            {children}
+          </BlackboardProvider>
+        </WebRProvider>
       </body>
     </html>
   );

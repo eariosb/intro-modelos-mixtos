@@ -1,7 +1,13 @@
 import type { Config } from 'tailwindcss';
 
 const config: Config = {
-  content: ['./app/**/*.{ts,tsx}', './components/**/*.{ts,tsx}', './content/**/*.{ts,tsx,mdx}'],
+  content: [
+    './app/**/*.{ts,tsx}',
+    './components/**/*.{ts,tsx}',
+    './content/**/*.{ts,tsx,mdx}',
+    // Scan only the workspace package source, not its nested node_modules.
+    './packages/blackboard/src/**/*.{ts,tsx}',
+  ],
   darkMode: 'class',
   theme: {
     extend: {

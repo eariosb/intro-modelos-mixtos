@@ -21,3 +21,88 @@ body {
   outline: 2px solid #4fa1a1 !important;
   outline-offset: -1px;
 }
+
+/* Docked blackboard: the open panel pushes the course content instead of
+   overlaying it. Docking is driven by MainColumn (React + Tailwind classes)
+   — see components/MainColumn.tsx. */
+
+/* Nested prose/max-w containers still clamp the text to ~65ch; let them
+   breathe up to the outer 56rem wrapper while the board is docked. */
+@media (min-width: 768px) {
+  .board-docked #bb-main .prose,
+  .board-docked #bb-main .max-w-prose,
+  .board-docked #bb-main .max-w-xl,
+  .board-docked #bb-main .max-w-2xl,
+  .board-docked #bb-main .max-w-3xl,
+  .board-docked #bb-main .max-w-4xl {
+    max-width: 100% !important;
+  }
+}
+
+/* Minimized Excalidraw chrome: free the whole canvas. Hides the top tool
+   bar, the left properties panel (stroke/fill colors, stroke width, opacity)
+   and the bottom menu. Tool shortcuts (1..0, 7 pencil) keep working. */
+.bb-min-tools .excalidraw .App-top-bar,
+.bb-min-tools .excalidraw .App-menu__left,
+.bb-min-tools .excalidraw .App-menu_bottom {
+  display: none;
+}
+
+/* Collapse only the left properties panel (colors, stroke width, opacity,
+   layers) while keeping the rest of Excalidraw's chrome visible. */
+.bb-min-props .excalidraw .App-menu__left {
+  display: none;
+}
+
+/* Canvas chrome buttons (minimize toggles) styled to match Excalidraw's own
+   island buttons so they read as native UI. Values mirror the toolkit's
+   theme surfaces: dark surface-mid/high = hsl(240 6% 10%) / hsl(245 10% 21%). */
+.bb-chrome-btn {
+  background: #ffffff;
+  color: #232329;
+  border-radius: 8px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.12);
+  transition: background-color 0.15s ease;
+}
+.bb-chrome-btn:hover {
+  background: #f1f0ff;
+}
+.bb-chrome-btn:active {
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.1);
+}
+.dark .bb-chrome-btn {
+  /* Exact Excalidraw dark-theme values: --color-surface-low trigger bg,
+     --color-on-surface icon fill, --color-surface-high hover. */
+  background: hsl(240, 8%, 15%);
+  color: #e3e3e8;
+  box-shadow: 0 0 0 1px hsl(0, 0%, 7%);
+}
+.dark .bb-chrome-btn:hover {
+  background: hsl(245, 10%, 21%);
+  color: #ffffff;
+}
+
+/* Pointer mode (That_Board touch board / IR pen): enlarge every interactive
+   target inside the panel to ~48-64 px and bump icon sizes. */
+.bb-pointer #blackboard-panel button,
+.bb-pointer #blackboard-panel select,
+.bb-pointer #blackboard-panel input {
+  min-height: 2.75rem;
+  min-width: 2.75rem;
+}
+.bb-pointer #blackboard-panel nav button {
+  font-size: 1.125rem;
+  padding: 0.5rem;
+}
+.bb-pointer #blackboard-panel input[type='text'],
+.bb-pointer #blackboard-panel input[type='password'] {
+  min-width: 0;
+}
+
+/* Floating buttons pile up over the docked panel's corner: the capture
+   action already lives in the panel's icon rail, and closing happens via
+   the in-panel ✕ — so hide both FABs while docked. */
+.board-docked .capture-fab,
+.board-docked .bb-trigger-fab {
+  display: none;
+}

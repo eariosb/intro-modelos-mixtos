@@ -1,6 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  transpilePackages: ['@cursos/blackboard'],
   // NOTA: 'output: standalone' se removio porque en Vercel provoca que el
   // tracing empaquete node_modules completo (incluyendo webr, ~59MB) dentro
   // de cada funcion serverless, lo que suele causar fallos de deploy tras

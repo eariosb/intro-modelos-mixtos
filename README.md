@@ -57,6 +57,149 @@ Al finalizar el curso, el estudiante será capaz de:
 - Diseño responsivo, minimalista y accesible (paleta sobria, tipografía Inter).
 - Generado de forma estática, optimizado para despliegue en Vercel.
 - Preparado para ejecutarse con Docker / Docker Compose.
+- **Pizarra docente integrada** (`@cursos/blackboard`): aula digital reutilizable sobre Excalidraw — trazo libre, fórmulas KaTeX, matrices, capturas de pantalla, código R ejecutable, asistente IA con RAG, páginas múltiples, modo presentación, sesiones con preguntas y exportación PDF/Markdown. Ver la sección [Pizarra docente](#pizarra-docente--aula-digital-integrada) y `packages/blackboard/README.md`.
+
+## Pizarra docente — aula digital integrada
+
+La pizarra convierte el curso en un aula interactiva: el docente puede
+**navegar → capturar → arrastrar → anotar → guardar → exportar** sin salir de
+la aplicación, con la teoría del módulo y el código embebido siempre visibles
+al lado del lienzo.
+
+Documentación: [Manual de usuario de la pizarra](docs/MANUAL-PIZARRA.md),
+[arquitectura y desarrollo](docs/ARQUITECTURA-PIZARRA.md) y
+[checklist de verificación manual](docs/MANUAL-TESTING.md).
+
+Para el contenido estadístico ampliado: [anexo técnico de paquetes R para
+modelos mixtos](docs/ANEXO-PAQUETES-MIXTOS-R.md) y [nuevo módulo de estructuras
+de varianza con `sommer`](content/modules/19-estructuras-varianza-sommer.mdx).
+En el curso están disponibles como [módulo aplicado de `sommer`](/cursos/modelos-mixtos/modulos/estructuras-varianza-sommer)
+y [anexo de paquetes R](/cursos/modelos-mixtos/modulos/anexo-paquetes-modelos-mixtos).
+
+### Layout tipo dock (60 % / 40 %)
+
+- En escritorio (`md+`) el panel queda **anclado a la izquierda ocupando el
+  60 % del viewport** y el contenido del curso refluye al 40 % restante
+  (`components/MainColumn.tsx`) — la pizarra nunca tapa la lección.
+- En pantallas angostas y en modo pantalla completa se comporta como overlay
+  a todo lo ancho.
+- Botones flotantes (abrir pizarra, capturar) se ocultan mientras el panel
+  está dockeado; todas sus acciones viven dentro del panel.
+
+### Organización del panel: un lienzo dominante
+
+```
+┌───────────────────────────────────────────────┐
+│ Barra de sesión (única fila superior)         │
+├───┬─────────────────────────────┬─────────────┤
+│ ‹ │                             │ IA · export │
+│n/m│                             │ clear · fs  │
+│ › │          LIENZO             │─────────────│
+│ ＋│        (Excalidraw)         │ pasos ‹ ›   │
+│del│                             │ spotlight   │
+│cap│                             │ presentar   │
+│gal│                             │ atajos      │
+│frm│                             │ rol doc/est │
+│mat│                             │ cerrar      │
+│not│                             │             │
+│pre│                             │             │
+│cmp│                             │             │
+│dgn│                             │             │
+├───┴─────────────────────────────┴─────────────┤
+│ ▸ Asistente IA   ▸ Cajón de recursos          │
+└───────────────────────────────────────────────┘
+```
+
+- **Riel izquierdo**: navegación de páginas (anterior / contador / siguiente /
+  crear / borrar), captura rápida y acceso al cajón de recursos (Capturas,
+  Fórmulas, Matrices, Notas, Preguntas, Comparar, Diagnóstico) — botones
+  compactos con `title`/`aria-label`.
+- **Riel derecho**: acciones rápidas de IA, exportar, limpiar, fullscreen,
+  controles de presentación (pasos, spotlight, modo presentación), atajos,
+  conmutador docente/estudiante y cerrar.
+- **Inferior**: asistente IA y cajón de recursos colapsados en tiras finas —
+  el canvas ocupa todo el alto disponible salvo la barra de sesión.
+- Todo el chrome desaparece en modo presentación.
+
+### Páginas múltiples por módulo
+
+Cada módulo puede tener varias páginas de pizarra. La navegación
+(`PageNav`, riel izquierdo) permite ir atrás/adelante, crear y eliminar
+páginas (con confirmación). Las operaciones se serializan — *flush* del
+guardado pendiente, persistencia de la página actual y carga/selección de la
+siguiente — para que los cambios rápidos de página nunca mezclen contenido
+entre lienzos. Los guardados *debounced* (400 ms) se etiquetan por `sceneId`
+para impedir escrituras cruzadas al cambiar de página, y la sesión recuerda
+la página activa (`session.activeSceneId`) para restaurarla al reanudar la
+clase.
+
+### Elementos técnicos sobre el lienzo
+
+Las fórmulas (KaTeX), matrices, tablas, salidas R y capturas se insertan como
+**imágenes raster con `customData`** que conserva el payload estructurado:
+doble clic reabre el editor (`ElementEditor`), se modifica y se re-renderiza
+el elemento en su posición — no son objetos Excalidraw nativos. Los binarios
+(`files`) se persisten junto a la escena, por lo que los elementos técnicos
+sobreviven recargas y exportaciones.
+
+### Capturas de pantalla
+
+- `Ctrl+Shift+S` (o el botón de captura del riel izquierdo) activa la selección de región
+  (`CaptureOverlay`): cualquier tabla, gráfico o fragmento de la lección se
+  captura y arrastra al lienzo.
+- Las capturas se guardan en una **biblioteca persistente** con metadatos,
+  etiquetas, búsqueda y filtros (`CaptureManager`, `CaptureGallery`).
+
+### Asistente IA con fundamentación (RAG)
+
+- Proveedor **DeepSeek / OpenAI-compatible**, configurable en el panel de
+  Ajustes (API key local en el navegador, nunca en el repositorio).
+- Recuperación **BM25** sobre el corpus del curso (`content/modules/*.mdx` +
+  bibliografía) vía `/api/rag-corpus` — las respuestas citan fuentes reales
+  del material.
+- *Tool calls* inyectados desde la app (`BoardToolOps`): `insert_math`,
+  `insert_matrix`, `run_r` (vía WebR) y `cite`; las respuestas pasan por un
+  validador anti-alucinación antes de mostrarse.
+- El código R generado puede abrirse en un sandbox `RCell` bajo el lienzo.
+
+### Modo presentación y rol docente/estudiante
+
+- `P` conmuta presentación: desaparece todo el chrome y los elementos se
+  revelan por pasos con `→`/`←` (o Espacio/PageDown/PageUp); cada elemento
+  lleva un `boardStep` en `customData`.
+- `S` arma el **spotlight** (rectángulo de atención sobre el lienzo); `Esc`
+  desarma → limpia → sale de presentación, en ese orden.
+- `useBroadcast` sincroniza el rol (docente dirigiendo clase / estudiante)
+  entre pestañas mediante `BroadcastChannel`.
+- Las preguntas de estudiantes se registran en `QuestionsPanel` y viajan en
+  la sesión.
+
+### Sesiones, persistencia y exportación
+
+- `SessionToolbar`: iniciar/finalizar sesión con estado (`En curso`,
+  horas), historial y exportación del informe.
+- Reanudar una sesión restaura también la **página de pizarra activa** y la
+  **conversación del asistente** (persistida por sesión en `bb-chat`).
+- Persistencia local **versionada** en IndexedDB (fallback `localStorage`):
+  escena v3, sesión v2, captura v2, ajustes/chat/eventos v1; escrituras
+  *debounced* + `lastKnownGood` y migraciones en `lib/persistence/`.
+- Exportación **PDF** (jsPDF) con el periodo de sesión, **todas las páginas
+  de la pizarra del módulo** (rasterizadas con `exportToBlob`), capturas,
+  preguntas e interacciones con el asistente; y **Markdown** con capturas
+  (código R, salidas), preguntas y chat verificado.
+- Observabilidad: *ring buffer* de ~500 eventos persistidos (panel
+  Diagnóstico) con fallback en memoria.
+
+### Atajos de teclado
+
+| Atajo | Acción |
+| --- | --- |
+| `Ctrl+Shift+B` | Abrir/cerrar la pizarra |
+| `Ctrl+Shift+S` | Capturar región de pantalla |
+| `P` | Entrar/salir de modo presentación |
+| `S` | Armar/desarmar spotlight |
+| `→` / `←` (en presentación) | Revelar / retroceder un paso |
+| `Esc` | Desarmar spotlight → limpiar → salir de presentación |
 
 ## Tecnologías utilizadas
 
@@ -65,6 +208,9 @@ Al finalizar el curso, el estudiante será capaz de:
 - [`webr`](https://docs.r-wasm.org/webr/latest/) — R completo vía WebAssembly, 100% en el cliente
 - [`@uiw/react-codemirror`](https://uiwjs.github.io/react-codemirror/) con modos de R y SAS para resaltado de sintaxis
 - [`react-markdown`](https://github.com/remarkjs/react-markdown) + [`remark-math`](https://github.com/remarkjs/remark-math) + [`rehype-katex`](https://github.com/remarkjs/remark-math/tree/main/packages/rehype-katex) + [KaTeX](https://katex.org/) para notación matemática
+- [`@excalidraw/excalidraw`](https://excalidraw.com/) — canvas de la pizarra docente
+- [`jspdf`](https://github.com/parallax/jsPDF) — informes de sesión en PDF
+- IndexedDB (`idb-keyval`) con fallback `localStorage` — persistencia local de escenas, sesiones, capturas y eventos
 - [Jest](https://jestjs.io/) + [React Testing Library](https://testing-library.com/docs/react-testing-library/intro/) para pruebas
 - [Docker](https://www.docker.com/) / Docker Compose para empaquetado y despliegue
 - [Vercel](https://vercel.com/) como plataforma de despliegue recomendada
@@ -75,7 +221,7 @@ Al finalizar el curso, el estudiante será capaz de:
 | ---- | ------ | -------------------- |
 | 1 | Introducción a los Modelos Mixtos | Motivación, datos longitudinales y diferencia entre efectos fijos y aleatorios. |
 | 2 | Análisis Exploratorio de Datos Longitudinales | Gráficos de perfiles, perfiles promedio y detección de patrones de anidamiento con `ggplot2`. |
-| 3 | Modelo Lineal Mixto (LMM) | Especificación del LMM con `lme4` y `nlme`, e interpretación de la salida del modelo. ★ Apéndice A: Bayes empírico y shrinkage (BLUPs como medias posteriores). ★ Apéndice B: algoritmo EM — E-step, M-step y convergencia. |
+| 3 | Modelo Lineal Mixto (LMM) | Especificación del LMM con `lme4` y `nlme`, e interpretación de la salida del modelo. ★ Apéndice A: Bayes empírico y shrinkage (BLUPs como medias posteriores). ★ Apéndice B: algoritmo EM/E-step, M-step y convergencia. |
 | 4 | Modelos Lineales Mixtos básicos | Interpretación de interceptos y pendientes aleatorias en trayectorias clínicas. |
 | 5 | Covarianza y correlación en LMM | Comparación de estructuras CS, AR(1) y no estructurada; matriz de covarianza residual. ★ Apéndice: estructuras avanzadas FA, HF, ARMA(1,1) y GLS-AR(1) puro vs. LMM. |
 | 6 | Diagnóstico con residuos simulados (DHARMa) | Validación de supuestos, detección de outliers y documentación de desviaciones del modelo. ★ Apéndice: distancia de Cook y DFBETAS con `influence.ME`, eliminación de sujetos influyentes. |
@@ -153,12 +299,12 @@ adicionales.
 
 ```
 app/
-  layout.tsx                                  # Layout raíz, fuente Inter, WebRProvider
+  layout.tsx                                  # Layout raíz, fuente Inter, WebRProvider, BlackboardProvider
   page.tsx                                    # Portada / índice del curso
   cursos/[course]/modulos/[slug]/page.tsx     # Página genérica de cada módulo (MDX)
 components/
   layout/Logo.tsx             # Logo tipográfico del curso (SVG inline)
-  AppLayout.tsx               # Shell (sidebar + main + footer)
+  AppLayout.tsx               # Shell (sidebar + main + footer + pizarra)
   Sidebar.tsx                 # Índice colapsable del curso (desktop + drawer móvil)
   Footer.tsx                  # Pie de página con logo, licencia y créditos
   ProgressBar.tsx             # Barra de progreso (usa useCourseProgress)
@@ -168,6 +314,18 @@ components/
   SASAccordion.tsx            # Acordeón con código SAS de referencia
   Callout.tsx, Quiz.tsx, Flashcard.tsx, DataTable.tsx, ProcessSteps.tsx
   WebRProvider.tsx            # Contexto global de WebR
+  CourseBlackboard.tsx        # Wrapper del curso: rieles, asistente, cajón y sesión↔pizarra
+  PageNav.tsx                 # Navegación serializada de páginas del riel izquierdo
+  DynamicCourseBlackboard.tsx # Lazy-load del panel (solo se descarga al abrirlo)
+  MainColumn.tsx              # Columna de contenido: dock 60/40 cuando la pizarra está abierta
+  SessionToolbar.tsx          # Sesiones de clase: iniciar/finalizar, historial, exportar PDF/MD
+  ToolsDrawer.tsx             # Cajón de recursos colapsable (capturas, fórmulas, matrices…)
+  PresentationControls.tsx    # Pasos, spotlight y modo presentación (fila o riel vertical)
+  ShortcutsHelp.tsx           # Ayuda de atajos de teclado
+  QuestionsPanel.tsx          # Registro de preguntas de estudiantes
+  CaptureTrigger/Overlay/Manager/Gallery.tsx  # Captura de región + biblioteca
+  ElementEditor.tsx           # Re-edición de fórmulas/matrices insertadas en el lienzo
+  FormulaPalette.tsx, MatrixBuilder.tsx, NotesPanel.tsx, DiagnosticsPanel.tsx
 content/
   modules/                    # Un .mdx por módulo: NN-slug-metodo.mdx
 mdx-components.tsx            # Mapa global de componentes MDX (RCell, Quiz, etc.)
@@ -179,6 +337,15 @@ lib/
 hooks/
   useWebR.ts                   # useRCell(): ejecución de celdas R contra WebR
   useProgress.ts               # useMarkLessonComplete() / useCourseProgress()
+packages/
+  blackboard/                  # Paquete @cursos/blackboard (pizarra plegable integrada)
+    src/
+      components/              # BlackboardPanel, BlackboardCanvas, BlackboardToolbar,
+                               # BlackboardAssistant, BlackboardContextBridge, …
+      hooks/                   # useBlackboard, useBlackboardScene, useBlackboardLLM, …
+      lib/                     # context, reducer, assistant (tools, board-ops), events,
+                               # prompts, storage (IndexedDB/localStorage/memoria),
+                               # persistence (versionado + migraciones), llm, graph, export
 scripts/
   generate-mdx.ts              # Herramienta de migración/mantenimiento (histórica)
 ```
@@ -297,6 +464,18 @@ npm test
   `useMarkLessonComplete`.
 - `components/Callout.test.tsx` — cubre el renderizado de `Callout` con sus
   distintos `type` y títulos.
+- `packages/blackboard/src/lib/` — eventos (`events.test.ts`), herramientas
+  del asistente (`assistant/tools.test.ts`), prompts del sistema
+  (`prompts/system.test.ts`), migraciones y storage en memoria.
+- `packages/blackboard/src/components/BlackboardCanvas.test.tsx` — regresión
+  de la guarda anti-contaminación entre escenas y persistencia de `files`.
+- `components/PageNav.test.tsx` — navegación, creación, borrado y filtrado
+  por módulo de las páginas de la pizarra.
+- `lib/session-store.test.ts` — CRUD de sesiones, capturas, preguntas,
+  secciones visitadas y puntero `activeSceneId`.
+- `lib/markdown-export.test.ts` — exportación de la sesión a Markdown.
+
+En total: **17 suites, 91 tests** (incluye 1 snapshot).
 
 ## Contribución
 

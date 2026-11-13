@@ -1,0 +1,123 @@
+---
+title: "Anexo: paquetes de R para modelos mixtos"
+slug: "anexo-paquetes-modelos-mixtos"
+subtitle: "Guía comparativa, documentación oficial y criterios estadísticos para elegir herramientas de modelos mixtos."
+objective:
+  - "Identificar paquetes de R relevantes para LMM, GLMM, medidas repetidas, matrices genéticas y modelos bayesianos."
+  - "Elegir herramientas según el tipo de respuesta, estimando y estructura de covarianza requerida."
+  - "Reconocer límites de inferencia, convergencia, selección automatizada y comparabilidad entre paquetes."
+order: 20
+datasets: []
+---
+
+## Alcance
+
+La vista de tareas de CRAN reúne numerosos paquetes; esta selección organiza
+herramientas habituales por problema estadístico y no pretende ser un ranking.
+La mejor opción depende del diseño, el estimando, la respuesta y las matrices
+de varianza-covarianza requeridas. Consulta la
+[CRAN Task View: Mixed Models](https://CRAN.R-project.org/view=MixedModels)
+para una lista más amplia.
+
+Un modelo mixto normal puede expresarse como
+
+$$
+y=X\beta+Zb+\varepsilon,\quad
+b\sim N(0,G),\quad \varepsilon\sim N(0,R),\quad
+\operatorname{Var}(y)=ZGZ^\top+R.
+$$
+
+`G` corresponde a la covarianza de efectos aleatorios; `R`, a la covarianza
+residual. Esta distinción ayuda a elegir paquetes: no todas las interfaces
+permiten especificar ambos niveles con la misma flexibilidad.
+
+## 1. Modelos lineales y generalizados
+
+| Paquete | Uso típico | Comentarios y límites | Ayuda oficial |
+|---|---|---|---|
+| `lme4` | LMM/GLMM con efectos aleatorios anidados o cruzados; `lmer()` y `glmer()`. | Eficiente y ampliamente adoptado. No es la interfaz general para modelar correlación residual AR(1) o varianza residual distinta por grupo. | [CRAN](https://cran.r-project.org/package=lme4) · [Reference manual](https://cran.r-project.org/web/packages/lme4/lme4.pdf) · [Vignettes](https://cran.r-project.org/web/packages/lme4/vignettes/) |
+| `nlme` | Modelos longitudinales; `lme()`/`gls()` con estructuras residuales `cor*` y `var*`. | Adecuado cuando se necesitan AR(1), simetría compuesta, correlación no estructurada, `varIdent` o `varPower`. Menos cómodo para efectos aleatorios cruzados complejos. | [CRAN](https://cran.r-project.org/package=nlme) · [Manual](https://cran.r-project.org/web/packages/nlme/nlme.pdf) |
+| `glmmTMB` | GLMM con sobredispersión, inflación de ceros y familias flexibles. | Interfaz similar a `lme4`; verificar soporte y parametrización de cada familia y componente. | [CRAN](https://cran.r-project.org/package=glmmTMB) · [Vignettes](https://cran.r-project.org/web/packages/glmmTMB/vignettes/) |
+| `GLMMadaptive` | GLMM con cuadratura adaptativa, especialmente en datos agrupados. | Puede ser preciso en contextos adecuados; su costo puede aumentar con la dimensión aleatoria. No existe un paquete universalmente más preciso: el desempeño depende del modelo y diseño. | [CRAN](https://cran.r-project.org/package=GLMMadaptive) · [Manual](https://cran.r-project.org/web/packages/GLMMadaptive/GLMMadaptive.pdf) |
+| `MASS::glmmPQL` | Exploración rápida de modelos mixtos generalizados mediante PQL. | PQL no es máxima verosimilitud completa. No tratar sus AIC/LRT como equivalentes a los de un modelo likelihood-based. | [CRAN](https://cran.r-project.org/package=MASS) · [Manual](https://cran.r-project.org/web/packages/MASS/MASS.pdf) |
+| `mbest` | Modelos mixtos anidados de gran escala con métodos de momentos. | Comprobar método, supuestos, mantenimiento y compatibilidad de la versión antes de adoptarlo. | [CRAN](https://cran.r-project.org/package=mbest) |
+
+## 2. Covarianzas, parentesco y genética
+
+| Paquete | Uso típico | Comentarios y límites | Ayuda oficial |
+|---|---|---|---|
+| `sommer` | Matrices `G` personalizadas, parentesco/pedigree/genómica, efectos correlacionados y ensayos multiambiente. | En versiones recientes incluye `mmer()` y estructuras como `vsm()`, `ism()`, `usm()` y otras. La sintaxis evoluciona: revisar documentación correspondiente a la versión instalada. | [CRAN](https://cran.r-project.org/package=sommer) · [Manual](https://cran.r-project.org/web/packages/sommer/sommer.pdf) · [Repositorio y vignettes](https://github.com/covaruber/sommer) |
+| `LMMstar` | Medidas repetidas y especificaciones de covarianza residual. | Revisar estructuras, inferencia y tratamiento de datos faltantes de la versión concreta. | [CRAN](https://cran.r-project.org/package=LMMstar) |
+| `lme4breeding` | Modelos de mejoramiento con matrices de relación, en un entorno relacionado con `lme4`. | Comprobar compatibilidad de matrices, nombres/orden de individuos y versiones de dependencias. | [CRAN](https://cran.r-project.org/package=lme4breeding) |
+| `pedigreemm` | Modelos mixtos que incorporan parentesco mediante la infraestructura del paquete. | Interfaz más antigua; para proyectos nuevos evaluar mantenimiento y compatibilidad frente a alternativas actuales. | [CRAN](https://cran.r-project.org/package=pedigreemm) |
+| ASReml-R | Estructuras de covarianza avanzadas, diseños experimentales y mejoramiento. | Software comercial sujeto a licencia. Registrar versión, opciones y método. | [Knowledge Base oficial](https://asreml.kb.vsni.co.uk/) |
+| `gremlin` | Modelos animales/genéticos con parentesco e inversas generalizadas. | Una matriz singular requiere análisis de identificabilidad; el paquete no elimina el problema estadístico. | [CRAN](https://cran.r-project.org/package=gremlin) |
+
+El [módulo 19 sobre estructuras de varianza con `sommer`](/cursos/modelos-mixtos/modulos/estructuras-varianza-sommer)
+desarrolla un ejemplo aplicado y separa matrices genéticas y residuales.
+
+## 3. Modelos bayesianos
+
+| Paquete | Uso típico | Consideraciones | Ayuda oficial |
+|---|---|---|---|
+| `brms` | Modelos multinivel, no lineales, multivariados y familias flexibles mediante Stan. | Revisar priors, diagnósticos MCMC, tamaño efectivo, convergencia y sensibilidad. | [CRAN](https://cran.r-project.org/package=brms) · [Manual](https://cran.r-project.org/web/packages/brms/brms.pdf) · [Vignettes](https://cran.r-project.org/web/packages/brms/vignettes/) |
+| `rstanarm` | Transición a modelos bayesianos con interfaces tipo `lm`/`lmer`. | La elección de priors es parte del modelo y requiere justificación y análisis de sensibilidad. | [CRAN](https://cran.r-project.org/package=rstanarm) · [Manual](https://cran.r-project.org/web/packages/rstanarm/rstanarm.pdf) |
+| `MCMCglmm` | Modelos evolutivos y genéticos, parentesco y covarianzas multivariadas con MCMC. | Configurar priors y revisar mezcla, convergencia y sensibilidad de cadenas. | [CRAN](https://cran.r-project.org/package=MCMCglmm) |
+| `blme` | Regularización/estimación MAP de modelos compatibles con la familia `lme4`. | Los priors pueden estabilizar estimaciones, pero no reemplazan diagnóstico de diseño o identificabilidad. | [CRAN](https://cran.r-project.org/package=blme) |
+
+## 4. Herramientas complementarias y casos especiales
+
+| Paquete | Aporte | Precaución | Ayuda oficial |
+|---|---|---|---|
+| `lmerTest` | Pruebas y grados de libertad aproximados para `lmer()`. | Reportar la aproximación usada (p. ej. Satterthwaite o Kenward–Roger). | [CRAN](https://cran.r-project.org/package=lmerTest) |
+| `broom.mixed` | Tablas ordenadas para resultados de varios tipos de modelos mixtos. | Confirmar qué parámetros incluye el método para la clase concreta. | [CRAN](https://cran.r-project.org/package=broom.mixed) |
+| `cAIC4` | AIC condicional para ciertos modelos mixtos y clases admitidas. | Respetar las condiciones de comparabilidad y clases soportadas. | [CRAN](https://cran.r-project.org/package=cAIC4) |
+| `buildmer` | Automatiza secuencias de ajustes y selección bajo criterios configurados. | La selección automática puede sesgar la inferencia y producir inestabilidad; no sustituye teoría, diseño o validación. | [CRAN](https://cran.r-project.org/package=buildmer) |
+| `gamm4` | Modelos aditivos generalizados con efectos aleatorios. | Revisar límites del motor para familias y correlaciones requeridas. | [CRAN](https://cran.r-project.org/package=gamm4) |
+| `dhglm` | Modelos doblemente jerárquicos para media y dispersión. | Modelo especializado; definir cuidadosamente la subestructura de varianza. | [CRAN](https://cran.r-project.org/package=dhglm) |
+| `tramME` | Modelos mixtos de transformación para ciertos desenlaces ordinales, censurados o de supervivencia. | La interpretación depende de la escala de transformación, no de la lectura habitual de un LMM. | [CRAN](https://cran.r-project.org/package=tramME) |
+| `geepack` | Ecuaciones de estimación generalizadas (GEE) para efectos poblacionales marginales. | GEE no es un GLMM; define un estimando y supuestos diferentes. | [CRAN](https://cran.r-project.org/package=geepack) |
+
+## 5. Decisión rápida por problema
+
+| Necesidad | Punto de partida |
+|---|---|
+| LMM/GLMM usual, efectos cruzados o anidados | `lme4` |
+| Correlación residual o heterocedasticidad explícita en longitudinales | `nlme` |
+| GLMM con sobredispersión o exceso de ceros | `glmmTMB` |
+| Parentesco/genómica o covarianzas aleatorias personalizadas | `sommer`; ASReml-R si la licencia y el problema lo justifican |
+| Inferencia bayesiana flexible | `brms`, `rstanarm` o `MCMCglmm` según la estructura |
+| Efecto promedio poblacional marginal | `geepack`/GEE, no asumir que equivale al efecto condicional de un GLMM |
+| Curvas suaves y aleatorios | `gamm4` o `mgcv`, de acuerdo con los requisitos de correlación |
+
+## 6. Buenas prácticas de selección e inferencia
+
+- Define primero el estimando: específico de unidad/condicional o
+  poblacional/marginal.
+- Separa dependencia inducida por `G` de dependencia residual `R`.
+- No hay un ganador universal en precisión, convergencia o rapidez. Los
+  benchmarks dependen del tamaño de muestra, número de grupos, dimensión de
+  efectos aleatorios, distribución y parametrización.
+- Para comparar efectos fijos diferentes en LMM, usar ML. Cuando los efectos
+  fijos son idénticos y cambia la estructura de covarianza, aplicar el
+  procedimiento recomendado por el motor y ser consistente. Reajustar el
+  modelo final con REML cuando corresponda.
+- Las varianzas nulas están en el borde del espacio paramétrico: la prueba LRT
+  usual puede no seguir una $\chi^2_1$ estándar. Considerar bootstrap
+  paramétrico o inferencia específica.
+- Investiga warnings: centrar/escalar covariables, revisar redundancia y
+  estructura de datos, y simplificar parámetros que el diseño no permite
+  estimar. No ocultar advertencias solo aumentando iteraciones.
+- Usa AIC/BIC como criterios relativos entre modelos comparables; no sustituyen
+  diagnóstico, diseño ni criterio científico.
+- Registra versiones y opciones:
+
+```r
+sessionInfo()
+packageVersion("lme4")
+packageVersion("nlme")
+packageVersion("sommer")
+```
+
+ASReml-R se obtiene según las condiciones de licencia y distribución del
+proveedor, no como una instalación ordinaria desde CRAN.

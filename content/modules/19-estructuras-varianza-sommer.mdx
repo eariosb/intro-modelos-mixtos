@@ -1,0 +1,344 @@
+---
+title: "Estructuras de varianza con sommer"
+slug: "estructuras-varianza-sommer"
+subtitle: "Separar G y R, especificar heterogeneidad y covarianzas genéticas, y aplicar sommer a ensayos multiambiente."
+objective:
+  - "Distinguir las matrices de covarianza de efectos aleatorios G y de errores R en un modelo mixto."
+  - "Elegir entre estructuras homogéneas, heterogéneas y correlacionadas según el diseño y la pregunta científica."
+  - "Usar nlme para modelar varianza residual distinta por grupo y correlación temporal."
+  - "Especificar en sommer efectos genéticos con matriz de parentesco y covarianza genética entre ambientes."
+  - "Comparar modelos de forma válida, diagnosticar identificabilidad y reportar las decisiones."
+order: 19
+datasets:
+  - "Orthodont (nlme), medidas repetidas de crecimiento dental"
+  - "Ensayo multiambiente simulado para sommer"
+---
+
+
+Este módulo amplía los módulos 5 y 11. La meta no es memorizar nombres de
+estructuras, sino responder tres preguntas antes de ajustar:
+
+1. ¿Qué unidades generan dependencia y cuál es el estimando?
+2. ¿La variación distinta ocurre entre unidades (matriz $G$) o en los errores
+   dentro de unidad (matriz $R$)?
+3. ¿Qué patrón de varianza/correlación puede justificarse por el diseño y los
+   datos disponibles?
+
+Se asume familiaridad con LMM, medidas repetidas, máxima verosimilitud,
+REML y fórmulas de `lme4`/`nlme`. El paquete `sommer` se ejecuta en una
+instalación convencional de R; no forma parte del conjunto de paquetes
+preinstalados de WebR en este curso. Los bloques `sommer` son reproducibles en
+R de escritorio con el paquete y sus dependencias instalados.
+
+<Callout type="info" title="No hay una estructura correcta por defecto">
+La estructura debe corresponder a la unidad experimental, el mecanismo de
+dependencia y el objetivo del estudio. Una estructura más flexible puede
+mejorar el ajuste, pero también puede exigir más parámetros y volverse
+débilmente identificada. Empieza con una hipótesis parsimoniosa y contrasta
+alternativas justificadas.
+</Callout>
+
+## 1. Marco común: $G$, $R$ y la covarianza marginal
+
+Para las observaciones de la unidad $i$:
+
+$$
+y_i = X_i\beta + Z_i b_i + \varepsilon_i,\quad
+b_i\sim N(0,G_i),\quad
+\varepsilon_i\sim N(0,R_i).
+$$
+
+Si $b_i$ y $\varepsilon_i$ son independientes,
+
+$$
+\operatorname{Var}(y_i)=Z_iG_iZ_i^\top+R_i.
+$$
+
+- **$G$** modela variación entre sujetos, sitios, genotipos, clínicas u otras
+  unidades aleatorias. Un intercepto y una pendiente aleatorios tienen una
+  matriz $G$ de $2\times2$ que puede permitir correlación entre ambos.
+- **$R$** modela la variación residual, incluyendo heterogeneidad de varianza o
+  dependencia entre medidas una vez considerados los efectos aleatorios.
+- **$V=ZGZ^\top+R$** es la covarianza marginal observada. Un patrón de
+  correlación en los datos puede provenir tanto de $G$ como de $R$; especificar
+  ambos de forma redundante puede hacerlos difíciles de separar.
+
+Ejemplo: un intercepto aleatorio por paciente produce correlación entre sus
+mediciones; un AR(1) residual añade una dependencia que decae con la distancia
+temporal aun después del intercepto aleatorio. La decisión requiere una
+interpretación científica y datos suficientes para estimar ambos componentes.
+
+## 2. Catálogo conceptual de estructuras
+
+| Estructura | Matriz o patrón | Parámetros principales | Interpretación y uso |
+|---|---|---:|---|
+| Independencia homogénea | $R=\sigma^2I$ | 1 | Residuos independientes y con varianza constante. Punto de referencia. |
+| Diagonal heterogénea | $R=\operatorname{diag}(\sigma_1^2,\dots,\sigma_k^2)$ | $k$ varianzas | Varianza diferente por visita, tratamiento o ambiente, sin correlación residual fuera de la diagonal. |
+| Simetría compuesta (CS) | Varianza común y una correlación $\rho$ | 2 | Toda pareja de medidas de una unidad comparte la misma correlación. |
+| AR(1) | $\operatorname{Corr}(e_t,e_s)=\rho^{\lvert t-s\rvert}$ | 2 con varianza | Correlación que decae geométricamente; requiere índice temporal coherente y usualmente tiempos equiespaciados. |
+| No estructurada (UN) | Matriz simétrica libre | $k(k+1)/2$ | Cada varianza y covarianza se estima; flexible pero costosa, frágil con pocos grupos. |
+| Intercepto/pendiente aleatorios | $G$ no estructurada de coeficientes | 3 para dos efectos | Unidades difieren en nivel y tendencia; permite correlación entre ambos. |
+| Relación genética | $G=\sigma_g^2K$ | 1 escala más la estructura conocida $K$ | La covarianza entre genotipos está determinada proporcionalmente por parentesco/predicción genómica. |
+| Genotipo por ambiente | Matriz de covarianza entre respuestas genéticas por ambiente | Depende del patrón | Permite que la respuesta genética y la correlación entre ambientes varíen. |
+
+CS, AR(1) y UN son modelos de dependencia distintos; no son una escala de
+calidad. UN puede sobreajustar, AR(1) no corresponde a tiempos arbitrarios sin
+adaptar la métrica, y CS puede ser demasiado restrictiva.
+
+## 3. Heterocedasticidad y correlación residual con `nlme`
+
+Usamos el conjunto incorporado `Orthodont` del paquete `nlme`, con mediciones
+dentales repetidas por sujeto. En el ejemplo se comparan estructuras residuales
+manteniendo fija la parte fija y el intercepto aleatorio; no se requiere
+descargar datos.
+`varIdent()` permite una varianza residual por grupo; `corAR1()` representa una
+correlación geométrica por distancia entre visitas. Estos términos actúan en
+$R$, no reemplazan el intercepto aleatorio en $G$.
+
+```r
+library(nlme)
+
+data(Orthodont)
+dat <- Orthodont
+dat$time_index <- as.integer(factor(dat$age))
+
+# Referencia: intercepto aleatorio y varianza residual constante.
+m_hom <- lme(
+  distance ~ age * Sex,
+  random = ~ 1 | Subject,
+  data = dat,
+  method = "ML"
+)
+
+# Varianza residual distinta por grupo de tratamiento.
+m_var_group <- update(
+  m_hom,
+  weights = varIdent(form = ~ 1 | Sex)
+)
+
+# Correlación residual AR(1) con índice de visitas entero y ordenado.
+m_ar1 <- update(
+  m_hom,
+  correlation = corAR1(form = ~ time_index | Subject)
+)
+
+# Hipótesis combinada: varianza por sexo y AR(1) dentro de sujeto.
+m_var_ar1 <- update(
+  m_hom,
+  weights = varIdent(form = ~ 1 | Sex),
+  correlation = corAR1(form = ~ time_index | Subject)
+)
+
+AIC(m_hom, m_var_group, m_ar1, m_var_ar1)
+```
+
+`varIdent()` estima razones de desviaciones estándar/varianzas relativas
+respecto a un nivel de referencia según la parametrización del paquete; no se
+debe interpretar directamente el parámetro crudo como una varianza sin
+transformarlo. Para visualizar la varianza modelada:
+
+```r
+plot(m_var_ar1, resid(., type = "normalized") ~ fitted(.) | Sex)
+intervals(m_var_ar1)
+```
+
+### Qué verificar
+
+- Que el tiempo usado por `corAR1()` represente el orden/diferencia real de las
+  visitas. Para tiempos irregulares, considerar una estructura continua como
+  `corCAR1()` con escala temporal apropiada.
+- Que el patrón de dispersión residual por grupo apoye `varIdent()`; no
+  inferir heterocedasticidad solamente por diferencias en tamaño muestral.
+- Que el ajuste combinado no produzca parámetros extremos, advertencias o
+  intervalos muy amplios.
+- Que la adición simultánea de $G$ y $R$ complejas sea identificable con el
+  número de unidades y mediciones disponibles.
+
+## 4. Por qué `sommer` para matrices de covarianza genéticas
+
+En mejoramiento y ensayos multiambiente puede conocerse o estimarse una matriz
+de relación $K$ entre genotipos. El modelo
+
+$$
+y=X\beta+Zu+\varepsilon,\qquad u\sim N(0,\sigma_g^2K)
+$$
+
+permite que genotipos relacionados compartan información. `sommer` ofrece
+estructuras para especificar matrices conocidas y covarianzas de efectos
+aleatorios. En la sintaxis moderna del paquete, `vsm()` combina modelos de
+varianza; `ism()` representa una estructura identidad, y `Gu` suministra una
+matriz de relación conocida.
+
+### Ejemplo aplicado: ensayo multiambiente simulado
+
+Simulamos marcadores, construimos una matriz de relación positiva
+semidefinida, generamos valores genéticos correlacionados y observamos varios
+genotipos en tres ambientes. El código usa `mmer()` y `vsm(ism(genotype),
+Gu = K)` para estimar un componente genético con matriz de parentesco. La
+función exacta y los nombres de estructuras deben verificarse contra la
+documentación de la versión instalada de `sommer`.
+
+```r
+install.packages("sommer")  # Ejecutar una vez en R de escritorio
+library(sommer)
+
+set.seed(2026)
+n_gen <- 36
+n_markers <- 120
+genotype <- sprintf("G%02d", seq_len(n_gen))
+
+# Matriz de marcadores 0/1/2 centrada y matriz de relación normalizada.
+M <- matrix(
+  rbinom(n_gen * n_markers, size = 2, prob = 0.5),
+  nrow = n_gen,
+  dimnames = list(genotype, NULL)
+)
+M <- scale(M, center = TRUE, scale = FALSE)
+K <- tcrossprod(M) / mean(diag(tcrossprod(M)))
+dimnames(K) <- list(genotype, genotype)
+
+# Efecto genético simulado con Var(u) proporcional a K.
+R <- chol(K + diag(1e-8, n_gen))
+u <- drop(t(R) %*% rnorm(n_gen, sd = 5))
+names(u) <- genotype
+
+dat <- expand.grid(
+  genotype = genotype,
+  env = factor(c("E1", "E2", "E3")),
+  rep = seq_len(2),
+  KEEP.OUT.ATTRS = FALSE
+)
+dat$genotype <- factor(dat$genotype, levels = genotype)
+dat$env <- factor(dat$env, levels = c("E1", "E2", "E3"))
+
+env_mean <- c(E1 = 50, E2 = 57, E3 = 46)
+dat$y <- env_mean[as.character(dat$env)] +
+  u[as.character(dat$genotype)] +
+  rnorm(nrow(dat), mean = 0, sd = 3)
+
+# El efecto genético de los genotipos sigue la matriz K.
+fit_K <- sommer::mmer(
+  fixed = y ~ env,
+  random = ~ sommer::vsm(
+    sommer::ism(genotype),
+    Gu = K
+  ),
+  rcov = ~ units,
+  data = dat
+)
+
+summary(fit_K)
+```
+
+La respuesta fija `env` estima diferencias medias entre ambientes; `K` aporta
+la covarianza entre efectos genéticos. El residual `units` representa el
+componente residual independiente de referencia. La salida debe inspeccionarse
+para confirmar convergencia, estimación de componentes y correspondencia entre
+los nombres de genotipo de `dat` y las filas/columnas de `K`.
+
+### Covarianza genética entre ambientes
+
+Cuando cada genotipo se mide en varios ambientes, puede interesar la
+correlación genética entre ambientes: por ejemplo, si el rendimiento relativo
+de un genotipo en E1 predice su rendimiento en E2. Una covarianza no
+estructurada entre efectos de ambiente permite correlaciones distintas para
+cada pareja, pero exige bastantes datos y puede ser inestable.
+
+Plantilla conceptual con la sintaxis `vsm()` moderna de `sommer`:
+
+```r
+# Modelo de efectos genéticos por ambiente con covarianza no estructurada.
+# Consultar la vignette de la versión instalada para la composición exacta
+# de vsm(), usm() e ism() antes de ejecutar en un análisis productivo.
+fit_gxe_un <- sommer::mmer(
+  fixed = y ~ env,
+  random = ~ sommer::vsm(
+    sommer::usm(env),
+    sommer::ism(genotype)
+  ),
+  rcov = ~ units,
+  data = dat
+)
+
+summary(fit_gxe_un)
+```
+
+En un análisis genómico se puede incorporar la matriz de relación al efecto
+genético por ambiente según la composición admitida por la versión instalada.
+No se debe copiar una fórmula compuesta sin comprobar qué término recibe `Gu`
+y qué orden de producto de Kronecker está implementando. Registrar la versión
+del paquete y validar el significado de la matriz estimada.
+
+## 5. Diseño, identificabilidad y comparación
+
+### Parámetros y tamaño del problema
+
+Una matriz no estructurada de $k$ ambientes requiere $k(k+1)/2$ parámetros de
+covarianza. Al aumentar $k$, crece rápidamente la exigencia de replicación. En
+cambio, una matriz proporcional a un parentesco conocido tiene una escala
+genética que estimar, además de los componentes residuales.
+
+Antes de usar una estructura compleja:
+
+- cuenta unidades independientes, medidas por unidad y réplicas por
+  combinación;
+- revisa celdas vacías y desbalance;
+- verifica que el diseño separe efectos de ambiente, genotipo y bloque;
+- evalúa si $G$ y $R$ propuestos se pueden distinguir;
+- inspecciona varianzas en cero, correlaciones cercanas a ±1 y errores estándar
+  grandes.
+
+### Comparación responsable
+
+1. Define previamente un conjunto pequeño de estructuras candidatas y una
+   justificación científica para cada una.
+2. Ajusta los modelos sobre las mismas observaciones y con el mismo tratamiento
+   de datos faltantes.
+3. Usa AIC/BIC con el mismo criterio de verosimilitud y la misma respuesta.
+   Si cambian efectos fijos, usa ML para las comparaciones de likelihood
+   correspondientes; para la estimación final de LMM, REML suele ser apropiado.
+4. Para contrastar una varianza igual a cero, recuerda que es un parámetro en
+   el borde del espacio permitido. No aplicar automáticamente una prueba
+   $\chi^2_1$ estándar; considerar bootstrap paramétrico o la inferencia
+   recomendada por el método.
+5. Combina criterios numéricos con residuos, diagnósticos, estabilidad,
+   plausibilidad y propósito del estudio. La menor AIC no repara una estructura
+   sin sentido científico.
+
+## 6. Interpretación y reporte
+
+Un reporte reproducible debería informar:
+
+- unidad de análisis, diseño y fuente de dependencia;
+- ecuación del modelo y efectos considerados fijos/aleatorios;
+- estructura de $G$ y $R$, incluyendo las matrices conocidas (por ejemplo,
+  pedigree o genómica), su origen, escala y orden de individuos;
+- método de estimación (ML/REML), software, versión de R y paquetes;
+- método de comparación y justificación de las estructuras candidatas;
+- convergencia, singularidad, diagnósticos y limitaciones;
+- estimaciones de varianza, desviaciones estándar, correlaciones e intervalos;
+- interpretación en unidades del problema, no solo la salida del software.
+
+## 7. Ejercicios
+
+1. En `SPRUCE1`, compara varianza homogénea con `varIdent(~ 1 | Group)`.
+   Describe la escala de cada estimación y evalúa residuos normalizados.
+2. Ajusta `corAR1()` y `corCAR1()` usando un índice entero y el tiempo real.
+   Explica qué supuesto temporal cambia.
+3. En el ensayo simulado, compara un modelo sin matriz `K` con `fit_K`.
+   Interpreta la varianza genética y calcula la proporción genética respecto
+   de la varianza total bajo el modelo ajustado.
+4. Modifica la simulación para introducir una interacción genotipo-ambiente.
+   Decide si una estructura no estructurada entre ambientes es estimable con
+   el número de genotipos y réplicas elegido.
+5. Escribe un párrafo de métodos que permita a otra persona reconstruir el
+   análisis y sus decisiones de covarianza.
+
+## Recursos oficiales
+
+- [`sommer` en CRAN](https://cran.r-project.org/package=sommer)
+- [Manual de referencia de `sommer`](https://cran.r-project.org/web/packages/sommer/sommer.pdf)
+- [Repositorio y vignettes de `sommer`](https://github.com/covaruber/sommer)
+- [`nlme` en CRAN](https://cran.r-project.org/package=nlme)
+- [Manual de `nlme`](https://cran.r-project.org/web/packages/nlme/nlme.pdf)
+- [Anexo del curso: paquetes de R para modelos mixtos](/cursos/modelos-mixtos/modulos/anexo-paquetes-modelos-mixtos)
